@@ -15,7 +15,6 @@ from ..config.main_config import GlobalConfig, LogicName
 from ..config.properties_generate_mod import Properties_GenerateMod
 from ..utils.obj_utils import ObjUtils
 from ..utils.log_utils import LOG
-from ..common.obj_buffer_model_unity import ObjBufferModelUnity
 
 
 import bpy
@@ -167,6 +166,9 @@ class ObjBufferHelper:
 
                     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
 
+                # 延迟导入 ObjBufferModelUnity 以避免循环导入
+                from ..common.obj_buffer_model_unity import ObjBufferModelUnity
+
                 obj_buffer_model = ObjBufferModelUnity(obj=obj, d3d11_game_type=d3d11_game_type)
 
                 # 后处理翻转回来
@@ -217,7 +219,6 @@ class ObjBufferHelper:
                 obj_model.shape_key_buffer_dict = __obj_name_shape_key_buffer_dict[obj_name]
 
             final_ordered_draw_obj_model_list.append(copy.deepcopy(obj_model))
-
         return final_ordered_draw_obj_model_list
 
 

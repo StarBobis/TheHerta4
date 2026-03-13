@@ -13,20 +13,6 @@ from .blueprint import blueprint_node_base
 from .blueprint import blueprint_node_menu
 from .blueprint import blueprint_node_shapekey
 from .blueprint import blueprint_node_datatype
-from .blueprint import blueprint_node_multifile_export
-from .blueprint import blueprint_drag_drop
-from .blueprint import blueprint_node_postprocess_vertex_attrs
-from .blueprint import blueprint_node_postprocess_shapekey
-from .blueprint import blueprint_node_postprocess_multifile
-from .blueprint import blueprint_node_postprocess_buffer_cleanup
-from .blueprint import blueprint_node_postprocess_resource_merge
-from .blueprint import blueprint_node_postprocess_material
-from .blueprint import blueprint_node_postprocess_health
-from .blueprint import blueprint_node_postprocess_slider
-from .blueprint import blueprint_node_vertex_group_match
-from .blueprint import blueprint_node_vertex_group_process
-from .blueprint import blueprint_node_vertex_group_mapping_input
-from .blueprint import blueprint_node_object_name_modify
 from .blueprint import blueprint_nest_navigate
 from .blueprint import blueprint_node_cross_ib
 
@@ -160,20 +146,7 @@ def register():
     blueprint_node_menu.register()
     blueprint_node_shapekey.register()
     blueprint_node_datatype.register()
-    blueprint_node_multifile_export.register()
-    blueprint_drag_drop.register()
-    blueprint_node_postprocess_vertex_attrs.register()
-    blueprint_node_postprocess_shapekey.register()
-    blueprint_node_postprocess_multifile.register()
-    blueprint_node_postprocess_buffer_cleanup.register()
-    blueprint_node_postprocess_resource_merge.register()
-    blueprint_node_postprocess_material.register()
-    blueprint_node_postprocess_health.register()
-    blueprint_node_postprocess_slider.register()
-    blueprint_node_vertex_group_match.register()
-    blueprint_node_vertex_group_process.register()
-    blueprint_node_vertex_group_mapping_input.register()
-    blueprint_node_object_name_modify.register()
+
     blueprint_nest_navigate.register()
     blueprint_node_cross_ib.register()
 
@@ -183,26 +156,12 @@ def unregister():
     # 蓝图系统
     blueprint_node_cross_ib.unregister()
     blueprint_nest_navigate.unregister()
-    blueprint_node_object_name_modify.unregister()
-    blueprint_node_vertex_group_match.unregister()
-    blueprint_node_vertex_group_process.unregister()
-    blueprint_node_vertex_group_mapping_input.unregister()
-    blueprint_node_postprocess_slider.unregister()
-    blueprint_node_postprocess_health.unregister()
-    blueprint_node_postprocess_material.unregister()
-    blueprint_node_postprocess_resource_merge.unregister()
-    blueprint_node_postprocess_buffer_cleanup.unregister()
-    blueprint_node_postprocess_multifile.unregister()
-    blueprint_node_postprocess_shapekey.unregister()
-    blueprint_node_postprocess_vertex_attrs.unregister()
     blueprint_node_obj.unregister()
     blueprint_import.unregister()
     blueprint_export.unregister()
     blueprint_node_menu.unregister()
     blueprint_node_shapekey.unregister()
     blueprint_node_datatype.unregister()
-    blueprint_node_multifile_export.unregister()
-    blueprint_drag_drop.unregister()
     blueprint_node_base.unregister()
 
     ui_panel_fast_texture.unregister()

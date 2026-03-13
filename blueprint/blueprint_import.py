@@ -11,13 +11,10 @@ from ..config.main_config import GlobalConfig, LogicName
 
 from ..importer.mesh_importer import MeshImporter,MigotoBinaryFile
 from ..base.drawib_pair import DrawIBPair
-from .blueprint_drag_drop import set_importing_state, refresh_workspace_cache
 
 
 def ImprotFromWorkSpaceSSMTBlueprint(self, context):
     
-    # 设置导入状态，避免触发自动节点创建
-    set_importing_state(True)
     
     # 这里先创建以当前工作空间为名称的集合，并且链接到scene，确保它存在
     workspace_collection = CollectionUtils.create_new_collection(collection_name=GlobalConfig.workspacename,color_tag=CollectionColor.Red)
@@ -240,14 +237,12 @@ def ImprotFromWorkSpaceSSMTBlueprint(self, context):
         import traceback
         traceback.print_exc()
     
-    # 导入完成后刷新缓存
-    refresh_workspace_cache()
+
 
 # 适配EFMI的全量导入逻辑
 def ImprotFromWorkSpaceFull(self, context):
     
-    # 设置导入状态，避免触发自动节点创建
-    set_importing_state(True)
+
     
     # 这里先创建以当前工作空间为名称的集合，并且链接到scene，确保它存在
     workspace_collection = CollectionUtils.create_new_collection(collection_name=GlobalConfig.workspacename,color_tag=CollectionColor.Red)
@@ -442,8 +437,7 @@ def ImprotFromWorkSpaceFull(self, context):
         import traceback
         traceback.print_exc()
     
-    # 导入完成后刷新缓存
-    refresh_workspace_cache()
+
 
 class SSMTImportAllFromCurrentWorkSpaceBlueprint(bpy.types.Operator):
     bl_idname = "ssmt.import_all_from_workspace_blueprint"
