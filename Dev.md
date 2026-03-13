@@ -40,3 +40,29 @@ GIMI/其它米游
 在物体较多时应该能够明显改善导出速度，因为省去了拼接过程，且更加不容易出错，因为合并在一起和分开时有的边和点什么的都不一样。
 
 
+# DrawIBModel问题
+
+我们之前的流程非常简单，因为每个DrawIB为一个组，所以导出时按照DrawIB轻松分组
+
+但是现在是以每个IndexCount,FirstIndex,DrawIB为一个单位，所以在DrawIB下面还要多一个ComponentModel
+
+每个蓝图解析完毕后，应该有一堆ComponentModel，随后按照不同的游戏处理逻辑进行最终内容的组装。
+
+所以在解析完成：
+
+        # 全局obj_model列表，主要是obj_model里装了每个obj的生效条件。
+        self.ordered_draw_obj_data_model_list:list[ObjDataModel] = [] 
+
+之后，在此之上完成ComponentModel层级抽象，设计为一个ComponentModel的列表
+后续导出流程就是每个游戏都有单独的流程去处理这个ComponentModel列表。
+
+或者说，到了ordered_draw_obj_data_model_list这一步，后续的步骤直接转移给每个游戏具体的导出流程
+省去ComponentModel层级，各个游戏处理流程尽可能函数式编程避免无法修改。
+
+因为DrawIBModel存在的意义是进行buffer文件的解析和导出
+如果游戏需要ComponentModel这个层级则需要实现，如果不需要还得走DrawIBModel层级
+所以这俩东西其实是一样的，只是每个游戏处理方式不同导致过程也不同，所以最终移动到每个游戏各自的逻辑里是最好的，而不是抽象复用
+
+复用类级别的抽象在这里反而导致了过度依赖问题。
+
+

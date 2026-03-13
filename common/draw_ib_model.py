@@ -20,6 +20,7 @@ from ..config.import_config import ImportConfig
 from ..blueprint.blueprint_model import BluePrintModel
 
 from ..helper.buffer_export_helper import BufferExportHelper
+from ..helper.obj_buffer_helper import ObjBufferHelper
 
 class DrawIBModel:
     '''
@@ -46,7 +47,11 @@ class DrawIBModel:
         这里是要得到每个Component对应的obj_data_model列表
         在这一步之前，需要对当前DrawIB的所有的obj_data_model填充ib和category_buf_dict属性
         '''
-        self.draw_ib_ordered_obj_data_model_list:list[ObjDataModel] = branch_model.get_buffered_obj_data_model_list_by_draw_ib_and_game_type(draw_ib=draw_ib,d3d11_game_type=self.import_config.d3d11GameType)
+        self.draw_ib_ordered_obj_data_model_list:list[ObjDataModel] = ObjBufferHelper.get_buffered_obj_data_model_list_by_draw_ib_and_game_type(
+            ordered_draw_obj_data_model_list=branch_model.ordered_draw_obj_data_model_list,
+            draw_ib=draw_ib,
+            d3d11_game_type=self.import_config.d3d11GameType,
+        )
         self._component_model_list:list[ComponentModel] = []
         self.component_name_component_model_dict:dict[str,ComponentModel] = {}
         for part_name in self.import_config.part_name_list:

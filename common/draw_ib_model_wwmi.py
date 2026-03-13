@@ -86,7 +86,10 @@ class DrawIBModelWWMI:
         self.extracted_object:ExtractedObject = ExtractedObjectHelper.read_metadata(GlobalConfig.path_extract_gametype_folder(draw_ib=self.draw_ib,gametype_name=self.d3d11GameType.GameTypeName)  + "Metadata.json")
 
         # 这里是要得到每个Component对应的obj_data_model列表
-        self.ordered_obj_data_model_list:list[ObjDataModel] = self.branch_model.get_obj_data_model_list_by_draw_ib(draw_ib=self.draw_ib)
+        self.ordered_obj_data_model_list:list[ObjDataModel] = ObjBufferHelper.get_obj_data_model_list_by_draw_ib(
+            ordered_draw_obj_data_model_list=self.branch_model.ordered_draw_obj_data_model_list,
+            draw_ib=self.draw_ib,
+        )
         
         # (3) 组装成特定格式
         self._component_model_list:list[ComponentModel] = []

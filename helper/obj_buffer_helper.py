@@ -1,6 +1,9 @@
 import collections
+import copy
+import math
 from ..base.d3d11_gametype import D3D11GameType
 from ..base.fatal import Fatal
+from ..base.obj_data_model import ObjDataModel
 
 
 from ..utils.format_utils import FormatUtils
@@ -10,6 +13,9 @@ from ..utils.tbn_codec import TBNCodec
 
 from ..config.main_config import GlobalConfig, LogicName
 from ..config.properties_generate_mod import Properties_GenerateMod
+from ..utils.obj_utils import ObjUtils
+from ..utils.log_utils import LOG
+from ..common.obj_buffer_model_unity import ObjBufferModelUnity
 
 
 import bpy
@@ -50,6 +56,169 @@ class ObjBufferHelper:
             if d3d11_element_name.startswith("BLENDINDICES"):
                 if not obj.vertex_groups:
                     raise Fatal("your object [" +obj.name + "] need at leat one valid Vertex Group, Please check if your model's Vertex Group is correct.")
+
+    @staticmethod
+    def get_obj_data_model_list_by_draw_ib(ordered_draw_obj_data_model_list:list[ObjDataModel], draw_ib:str):
+        '''
+        只返回指定draw_ib的obj列表
+        这个方法存在的目的是为了兼容鸣潮的MergedObj
+        这里只是根据IB获取一下对应的obj列表,不需要额外计算其它东西,因为WWMI的逻辑是融合后计算。
+        '''
+        final_ordered_draw_obj_model_list:list[ObjDataModel] = []
+
+        for obj_model in ordered_draw_obj_data_model_list:
+            # 只统计给定DrawIB的数据
+            if obj_model.draw_ib != draw_ib:
+                continue
+
+            final_ordered_draw_obj_model_list.append(copy.deepcopy(obj_model))
+
+        return final_ordered_draw_obj_model_list
+
+    @staticmethod
+    def get_buffered_obj_data_model_list_by_draw_ib_and_game_type(ordered_draw_obj_data_model_list:list[ObjDataModel], draw_ib:str, d3d11_game_type:D3D11GameType):
+        '''
+        调用这个方法的时候才转换Buffer，不调用的话不转换
+        (1) 读取obj的category_buffer
+        (2) 读取obj的ib
+        (3) 设置到最终的ordered_draw_obj_model_list
+        '''
+        # 延迟导入，避免 helper 与 blueprint 之间的潜在循环依赖
+        from ..blueprint.blueprint_export_helper import BlueprintExportHelper
+
+        __obj_name_ib_dict:dict[str,list] = {}
+        __obj_name_category_buffer_list_dict:dict[str,list] = {}
+        __obj_name_shape_key_buffer_dict:dict[str,dict] = {}
+
+        obj_name_obj_model_cache_dict:dict[str,ObjDataModel] = {}
+
+        for obj_model in ordered_draw_obj_data_model_list:
+            # 只统计给定DrawIB的数据
+            if obj_model.draw_ib != draw_ib:
+                continue
+
+            # 检查是否是多文件导出节点创建的对象
+            if hasattr(obj_model, 'is_multifile_export') and obj_model.is_multifile_export:
+                multifile_node = BlueprintExportHelper.find_node_in_all_blueprints(obj_model.multifile_node_name)
+
+                if not multifile_node:
+                    LOG.warning(f"无法找到多文件导出节点: {obj_model.multifile_node_name}")
+                    continue
+
+                # 获取当前导出次数对应的物体信息
+                export_index = BlueprintExportHelper.get_current_export_index() - 1
+                multifile_object_info = multifile_node.get_current_object_info(export_index)
+
+                if multifile_object_info:
+                    obj_name = multifile_object_info["object_name"]
+                    obj_model.obj_name = obj_name
+                    obj_model.draw_ib = multifile_object_info["draw_ib"]
+                    obj_model.component_count = int(multifile_object_info["component"]) if multifile_object_info["component"] else 0
+                    obj_model.obj_alias_name = multifile_object_info["alias_name"]
+
+                    original_name = multifile_object_info.get("original_object_name", obj_name)
+                    if original_name:
+                        obj_model.display_name = original_name
+
+                    LOG.info(f"多文件导出节点更新物体: {obj_name} (第{export_index + 1}次导出)")
+                else:
+                    # 如果没有对应的物体信息，跳过这个对象
+                    LOG.warning(f"多文件导出节点在第{export_index + 1}次导出时没有对应的物体，跳过")
+                    continue
+
+            obj_name = obj_model.obj_name
+            obj = bpy.data.objects[obj_name]
+
+            obj_model_cached = obj_name_obj_model_cache_dict.get(obj_name, None)
+            if obj_model_cached is not None:
+                LOG.info("Using cached model for " + obj_name)
+                __obj_name_ib_dict[obj.name] = obj_model_cached.ib
+                __obj_name_category_buffer_list_dict[obj.name] = obj_model_cached.category_buffer_dict
+                if hasattr(obj_model_cached, 'shape_key_buffer_dict'):
+                    __obj_name_shape_key_buffer_dict[obj.name] = obj_model_cached.shape_key_buffer_dict
+            else:
+                # XXX 我们在导出具体数据之前，先对模型整体的权重进行normalize_all预处理，才能让后续的具体每一个权重的normalize_all更好的工作
+                # 使用这个的前提是当前obj中没有锁定的顶点组，所以这里要先进行判断。
+                if "Blend" in d3d11_game_type.OrderedCategoryNameList:
+                    all_vgs_locked = ObjUtils.is_all_vertex_groups_locked(obj)
+                    if not all_vgs_locked:
+                        ObjUtils.normalize_all(obj)
+
+                # 预处理翻转过去
+                if (GlobalConfig.logic_name == LogicName.SRMI
+                    or GlobalConfig.logic_name == LogicName.GIMI
+                    or GlobalConfig.logic_name == LogicName.HIMI
+                    or GlobalConfig.logic_name == LogicName.YYSLS
+                    or GlobalConfig.logic_name == LogicName.CTXMC
+                    or GlobalConfig.logic_name == LogicName.IdentityV2):
+                    ObjUtils.select_obj(obj)
+
+                    obj.rotation_euler[0] = math.radians(-90)
+                    obj.rotation_euler[1] = 0
+                    obj.rotation_euler[2] = 0
+
+                    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+                elif GlobalConfig.logic_name == LogicName.EFMI:
+                    ObjUtils.select_obj(obj)
+
+                    obj.rotation_euler[0] = 0
+                    obj.rotation_euler[1] = 0
+                    obj.rotation_euler[2] = 0
+
+                    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+                obj_buffer_model = ObjBufferModelUnity(obj=obj, d3d11_game_type=d3d11_game_type)
+
+                # 后处理翻转回来
+                if (GlobalConfig.logic_name == LogicName.SRMI
+                    or GlobalConfig.logic_name == LogicName.GIMI
+                    or GlobalConfig.logic_name == LogicName.HIMI
+                    or GlobalConfig.logic_name == LogicName.YYSLS
+                    or GlobalConfig.logic_name == LogicName.CTXMC
+                    or GlobalConfig.logic_name == LogicName.IdentityV2):
+                    ObjUtils.select_obj(obj)
+
+                    obj.rotation_euler[0] = math.radians(90)
+                    obj.rotation_euler[1] = 0
+                    obj.rotation_euler[2] = 0
+
+                    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+                elif GlobalConfig.logic_name == LogicName.EFMI:
+                    ObjUtils.select_obj(obj)
+
+                    obj.rotation_euler[0] = 0
+                    obj.rotation_euler[1] = 0
+                    obj.rotation_euler[2] = 0
+
+                    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+                __obj_name_ib_dict[obj.name] = obj_buffer_model.ib
+                __obj_name_category_buffer_list_dict[obj.name] = obj_buffer_model.category_buffer_dict
+                if hasattr(obj_buffer_model, 'shape_key_buffer_dict'):
+                    __obj_name_shape_key_buffer_dict[obj.name] = obj_buffer_model.shape_key_buffer_dict
+
+                obj_name_obj_model_cache_dict[obj_name] = obj_buffer_model
+
+        final_ordered_draw_obj_model_list:list[ObjDataModel] = []
+
+        print(__obj_name_ib_dict.keys())
+
+        for obj_model in ordered_draw_obj_data_model_list:
+            # 只统计给定DrawIB的数据
+            if obj_model.draw_ib != draw_ib:
+                continue
+
+            obj_name = obj_model.obj_name
+
+            obj_model.ib = __obj_name_ib_dict[obj_name]
+            obj_model.category_buffer_dict = __obj_name_category_buffer_list_dict[obj_name]
+
+            if obj_name in __obj_name_shape_key_buffer_dict:
+                obj_model.shape_key_buffer_dict = __obj_name_shape_key_buffer_dict[obj_name]
+
+            final_ordered_draw_obj_model_list.append(copy.deepcopy(obj_model))
+
+        return final_ordered_draw_obj_model_list
 
 
 

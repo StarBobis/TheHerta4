@@ -102,7 +102,7 @@ def check_tmp_json_exists(draw_ib: str, gametypename: str) -> tuple[bool, str, O
             for dirname in dirs:
                 if dirname.startswith("TYPE_"):
                     type_folder = os.path.join(draw_ib_folder, dirname)
-                    tmp_json_path = os.path.join(type_folder, "tmp.json")
+                    tmp_json_path = os.path.join(type_folder, "import.json")
                     if os.path.exists(tmp_json_path):
                         found_types.append(dirname.replace("TYPE_", ""))
             

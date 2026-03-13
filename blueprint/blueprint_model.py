@@ -56,15 +56,6 @@ class BluePrintModel:
         output_node = BlueprintExportHelper.get_node_from_bl_idname(tree, 'SSMTNode_Result_Output')
         self.parse_current_node(output_node, [])
 
-        # TODO
-        # 然后开始解析形态键节点
-        self.draw_ib_list = []
-        for obj_data_model in self.ordered_draw_obj_data_model_list:
-            draw_ib = obj_data_model.draw_ib
-
-            if draw_ib not in self.draw_ib_list:
-                self.draw_ib_list.append(draw_ib)
-
     def parse_current_node(self, current_node:bpy.types.Node, chain_key_list:list[M_Key]):
         for unknown_node in BlueprintExportHelper.get_connected_nodes(current_node):
             self.parse_single_node(unknown_node, chain_key_list)
