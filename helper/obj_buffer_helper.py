@@ -67,7 +67,7 @@ class ObjBufferHelper:
 
         for obj_model in ordered_draw_obj_data_model_list:
             # 只统计给定DrawIB的数据
-            if obj_model.draw_ib != draw_ib:
+            if obj_model.match_draw_ib != draw_ib:
                 continue
 
             final_ordered_draw_obj_model_list.append(copy.deepcopy(obj_model))
@@ -96,7 +96,7 @@ class ObjBufferHelper:
 
         for obj_model in ordered_draw_obj_data_model_list:
             # 只统计给定DrawIB的数据
-            if obj_model.draw_ib != draw_ib:
+            if obj_model.match_draw_ib != draw_ib:
                 continue
 
             # 检查是否是多文件导出节点创建的对象
@@ -114,9 +114,9 @@ class ObjBufferHelper:
                 if multifile_object_info:
                     obj_name = multifile_object_info["object_name"]
                     obj_model.obj_name = obj_name
-                    obj_model.draw_ib = multifile_object_info["draw_ib"]
+                    obj_model.match_draw_ib = multifile_object_info["draw_ib"]
                     obj_model.component_count = int(multifile_object_info["component"]) if multifile_object_info["component"] else 0
-                    obj_model.obj_alias_name = multifile_object_info["alias_name"]
+                    obj_model.comment_alias_name = multifile_object_info["alias_name"]
 
                     original_name = multifile_object_info.get("original_object_name", obj_name)
                     if original_name:
@@ -210,7 +210,7 @@ class ObjBufferHelper:
 
         for obj_model in ordered_draw_obj_data_model_list:
             # 只统计给定DrawIB的数据
-            if obj_model.draw_ib != draw_ib:
+            if obj_model.match_draw_ib != draw_ib:
                 continue
 
             obj_name = obj_model.obj_name

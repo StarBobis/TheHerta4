@@ -179,38 +179,31 @@ class DrawCallModel:
     obj_name:str
 
     # 传入obj_name后，根据ObjRuleName解析出这些属性，方便后续使用
-    draw_ib:str = field(init=False,repr=False,default="")
-    index_count:str = field(init=False,repr=False,default="")
-    first_index:str = field(init=False,repr=False,default="")
-    obj_alias_name:str = field(init=False,repr=False,default="")
-    display_name:str = field(init=False,repr=False,default="")
+    match_draw_ib:str = field(init=False,repr=False,default="") # 用于匹配的DrawIB
+    match_index_count:str = field(init=False,repr=False,default="") # 用于匹配的IndexCount
+    match_first_index:str = field(init=False,repr=False,default="") # 用于匹配的FirstIndex
+    comment_alias_name:str = field(init=False,repr=False,default="") # 用于显示在注释中的自定义名称
 
     # 生效条件，在BlueprintModel解析的时候得到
     condition:M_Condition = field(init=False,repr=False,default_factory=M_Condition)
 
+    # 在SubMeshModel层级计算得到这些属性，用于ini写出
+    index_count:int = field(init=False,repr=False,default=0)
+    vertex_count:int = field(init=False,repr=False,default=0)
+    index_offset:int = field(init=False,repr=False,default=0)
 
-    # 这些是后续计算手动赋值进来的
-    # TODO 当然也可以直接来一个函数来计算得到，具体看最终设计
-    ib:list = field(init=False,repr=False,default_factory=list)
-    category_buffer_dict:dict = field(init=False,repr=False,default_factory=dict)
-    # 仅用于WWMI的索引顶点ID字典，key是顶点索引，value是顶点ID，默认可以为None
-    index_vertex_id_dict:dict = field(init=False,repr=False,default_factory=dict) 
-
-    # 最终计算得到的偏移，才能得到DrawIndexed
-    drawindexed_obj:M_DrawIndexed = field(init=False,repr=False,default_factory=M_DrawIndexed)
 
     def __post_init__(self):
         obj_rule_name = ObjRuleName(self.obj_name)
-
-        self.draw_ib = obj_rule_name.draw_ib
-        self.index_count = obj_rule_name.index_count
-        self.first_index = obj_rule_name.first_index
-        self.obj_alias_name = obj_rule_name.obj_alias_name
-        self.display_name = self.obj_name
+        self.match_draw_ib = obj_rule_name.draw_ib
+        self.match_index_count = obj_rule_name.index_count
+        self.match_first_index = obj_rule_name.first_index
+        self.comment_alias_name = obj_rule_name.obj_alias_name
     
     def get_unique_str(self) -> str:
         # 这个唯一标识符是根据DrawIB、FirstIndex和IndexCount组成的字符串，作为一个整体来标识一个DrawCall
-        return self.draw_ib + "_" + self.first_index + "_" + self.index_count
+        # 同时也和提取出来的工作空间目录下对应的目录名称一致
+        return self.match_draw_ib + "-" + self.match_index_count+ "-" + self.match_first_index 
         
        
        

@@ -1,6 +1,7 @@
 import struct
 import numpy
 import os
+import bpy
 
 
 from dataclasses import dataclass, field
