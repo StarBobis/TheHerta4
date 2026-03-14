@@ -3,12 +3,11 @@
 '''
 import bpy
 
-from ..config.main_config import GlobalConfig, LogicName
-from ..config.plugin_config import PluginConfig
+from ..base.config.main_config import GlobalConfig, LogicName
+from ..base.config.plugin_config import PluginConfig
+from ..base.config.properties_import_model import Properties_ImportModel
 
-from ..config.properties_import_model import Properties_ImportModel
-
-from ..utils.translate_utils import TR
+from ..base.utils.translate_utils import TR
 
 
 class PanelBasicInformation(bpy.types.Panel):

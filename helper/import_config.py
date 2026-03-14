@@ -10,10 +10,10 @@ import os
 from typing import List, Dict, Union, Optional
 from dataclasses import dataclass, field, asdict
 
-from ..utils.json_utils import JsonUtils
-from ..utils.format_utils import Fatal
+from ..base.utils.json_utils import JsonUtils
+from ..base.utils.format_utils import Fatal
 
-from .main_config import GlobalConfig
+from ..base.config.main_config import GlobalConfig
 
 from ..common.d3d11.d3d11_gametype import D3D11GameType
 
@@ -30,7 +30,7 @@ def check_and_try_generate_import_json() -> dict:
     
     print("Import.json 不存在，尝试自动生成...")
     
-    from ..utils.config_utils import ConfigUtils
+    from ..base.utils.config_utils import ConfigUtils
     
     draw_ib_gametypename_dict = {}
     

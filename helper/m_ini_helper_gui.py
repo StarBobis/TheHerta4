@@ -2,11 +2,11 @@
 import os
 import shutil
 
-from ..common.m_ini_builder import *
-from ..config.main_config import GlobalConfig
-from ..config.properties_generate_mod import Properties_GenerateMod
-from .m_key import M_Key
-from .draw_call_model import DrawCallModel
+from ..common.migoto.m_ini_builder import *
+from ..base.config.main_config import GlobalConfig
+from ..base.config.properties_generate_mod import Properties_GenerateMod
+from ..common.migoto.m_key import M_Key
+from ..common.export.draw_call_model import DrawCallModel
 
 class M_IniHelperGUI:
     @classmethod

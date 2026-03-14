@@ -1,4 +1,4 @@
-# 配置类，独立于主模块
+# 配置类，主要用于获取Blender插件的bl_info信息
 class PluginConfig:
     _bl_info = None
     
