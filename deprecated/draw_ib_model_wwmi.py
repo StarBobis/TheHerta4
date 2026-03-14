@@ -25,8 +25,8 @@ from ..common.draw_call_model import M_DrawIndexed
 from ..config.properties_wwmi import Properties_WWMI
 from ..config.import_config import ImportConfig
 
-from .obj_element_model import ObjElementModel
-from .obj_buffer_model_wwmi import ObjBufferModelWWMI
+from ..common.export.obj_element_model import ObjElementModel
+from ..common.export.obj_buffer_model_wwmi import ObjBufferModelWWMI
 from .blueprint_model import BluePrintModel
 from ..helper.buffer_export_helper import BufferExportHelper
 

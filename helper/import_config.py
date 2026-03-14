@@ -18,76 +18,8 @@ from ..base.config.main_config import GlobalConfig
 from ..common.d3d11.d3d11_gametype import D3D11GameType
 
 
-def check_and_try_generate_import_json() -> dict:
-    '''
-    检查 Import.json 是否存在，如果不存在则尝试自动生成
-    返回 draw_ib_gametypename_dict
-    '''
-    workspace_import_json_path = os.path.join(GlobalConfig.path_workspace_folder(), "Import.json")
-    
-    if os.path.exists(workspace_import_json_path):
-        return JsonUtils.LoadFromFile(workspace_import_json_path)
-    
-    print("Import.json 不存在，尝试自动生成...")
-    
-    from ..base.utils.config_utils import ConfigUtils
-    
-    draw_ib_gametypename_dict = {}
-    
-    try:
-        draw_ib_pair_list = ConfigUtils.get_extract_drawib_list_from_workspace_config_json()
-    except Exception as e:
-        raise Fatal(f"无法读取工作空间配置: {str(e)}\n请确保已在SSMT中正确配置工作空间。")
-    
-    current_workspace_folder = GlobalConfig.path_workspace_folder()
-    
-    for draw_ib_pair in draw_ib_pair_list:
-        draw_ib = draw_ib_pair.DrawIB
-        import_drawib_folder_path = os.path.join(current_workspace_folder, draw_ib)
-        
-        if not os.path.exists(import_drawib_folder_path):
-            print(f"DrawIB {draw_ib} 的文件夹不存在，跳过")
-            continue
-        
-        dirs = os.listdir(import_drawib_folder_path)
-        gpu_folders = []
-        cpu_folders = []
-        
-        for dirname in dirs:
-            if not dirname.startswith("TYPE_"):
-                continue
-            folder_path = os.path.join(import_drawib_folder_path, dirname)
-            if dirname.startswith("TYPE_GPU"):
-                gpu_folders.append(folder_path)
-            elif dirname.startswith("TYPE_CPU"):
-                cpu_folders.append(folder_path)
-        
-        all_folders = gpu_folders + cpu_folders
-        
-        for folder_path in all_folders:
-            tmp_json_path = os.path.join(folder_path, "tmp.json")
-            if os.path.exists(tmp_json_path):
-                try:
-                    tmp_json = ConfigUtils.read_tmp_json(folder_path)
-                    work_game_type = tmp_json.get("WorkGameType", "")
-                    if work_game_type:
-                        draw_ib_gametypename_dict[draw_ib] = work_game_type
-                        print(f"自动检测到 DrawIB {draw_ib} 的数据类型: {work_game_type}")
-                        break
-                except Exception as e:
-                    print(f"读取 {tmp_json_path} 失败: {e}")
-                    continue
-    
-    if draw_ib_gametypename_dict:
-        JsonUtils.SaveToFile(json_dict=draw_ib_gametypename_dict, filepath=workspace_import_json_path)
-        print(f"已自动生成 Import.json: {workspace_import_json_path}")
-    else:
-        print("警告: 无法自动生成 Import.json，没有找到有效的提取数据")
-    
-    return draw_ib_gametypename_dict
 
-
-def check_tmp_json_exists(draw_ib: str, gametypename: str) -> tuple[bool, str, Optional[str]]:
+def check_and_get_import_json_path(draw_ib: str, gametypename: str) -> tuple[bool, str, Optional[str]]:
     '''
     检查 tmp.json 是否存在
     返回: (是否存在, 错误信息, 找到的tmp.json路径)
@@ -156,8 +88,10 @@ class ImportConfig:
     partname_texturemarkinfolist_dict:Dict[str,list[TextureMarkUpInfo]] = field(init=False,default_factory=dict)
 
     def __post_init__(self):
-        draw_ib_gametypename_dict = check_and_try_generate_import_json()
-        gametypename = draw_ib_gametypename_dict.get(self.draw_ib,"")
+        exists, error_msg, tmp_json_path = check_and_get_import_json_path(self.draw_ib, "")
+        if not exists:
+            raise Fatal(error_msg)
+        gametypename = tmp_json_path.split(os.sep)[-2].replace("TYPE_", "")
 
         extract_gametype_folder_path = GlobalConfig.path_extract_gametype_folder(draw_ib=self.draw_ib,gametype_name=gametypename)
         self.extract_gametype_folder_path = extract_gametype_folder_path
@@ -176,7 +110,7 @@ class ImportConfig:
                     break
         
         if not os.path.exists(tmp_json_path):
-            exists, error_msg, found_path = check_tmp_json_exists(self.draw_ib, gametypename)
+            exists, error_msg, found_path = check_and_get_import_json_path(self.draw_ib, gametypename)
             if not exists:
                 raise Fatal(error_msg)
             if found_path:

@@ -13,13 +13,13 @@ import bpy
 from dataclasses import dataclass, field
 from typing import Dict
 
-from ..utils.obj_utils import ObjUtils
-from ..utils.shapekey_utils import ShapeKeyUtils
+from ...base.utils.obj_utils import ObjUtils
+from ...base.utils.shapekey_utils import ShapeKeyUtils
 
 
-from .d3d11 import D3D11GameType
+from ..d3d11.d3d11_gametype import D3D11GameType
 
-from ..helper.obj_buffer_helper import ObjBufferHelper
+from ...helper.obj_buffer_helper import ObjBufferHelper
 
 @dataclass
 class ObjElementModel:

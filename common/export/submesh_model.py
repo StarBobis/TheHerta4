@@ -2,9 +2,17 @@ from dataclasses import dataclass, field
 from typing import Dict
 from .draw_call_model import DrawCallModel
 from ...base.utils.obj_utils import ObjUtils
+from ...base.utils.collection_utils import CollectionUtils
+from ...base.utils.json_utils import JsonUtils
+from ..d3d11.d3d11_gametype import D3D11GameType
 from ...helper.obj_buffer_helper import ObjBufferHelper
 
+from ...base.config.main_config import GlobalConfig
+from .obj_element_model import ObjElementModel
+from .obj_buffer_model_unity import ObjBufferModelUnity
+
 import bpy
+import os
 '''
 一般DrawIB索引缓冲区是由多个SubMesh子网格构成的
 每个Submesh分别具有不同的材质和内容
@@ -35,6 +43,10 @@ TODO
 '''
 @dataclass
 class SubMeshModel:
+    '''
+    注意，所有的写出文件都是由具体的游戏逻辑负责的
+    这里只负责获取ib,category_buffer等数据
+    '''
     # 初始化时需要填入此属性
     drawcall_model_list:list[DrawCallModel] = field(default_factory=list)
 
@@ -42,10 +54,14 @@ class SubMeshModel:
     match_draw_ib:str = field(init=False, default="")
     match_first_index:int = field(init=False, default=-1)
     match_index_count:int = field(init=False, default=-1)
+    unique_str:str = field(init=False, default="")
 
     # 调用组合obj并计算ib和vb得到这些属性
     vertex_count:int = field(init=False, default=0)
     index_count:int = field(init=False, default=0)
+
+    # 读取工作空间中的import.json来获取d3d11GameType
+    d3d11_game_type:D3D11GameType = field(init=False,repr=False,default=None)
 
     ib:list = field(init=False,repr=False,default_factory=list)
     category_buffer_dict:dict = field(init=False,repr=False,default_factory=dict)
@@ -58,6 +74,9 @@ class SubMeshModel:
             self.match_draw_ib = self.drawcall_model_list[0].match_draw_ib
             self.match_first_index = self.drawcall_model_list[0].match_first_index
             self.match_index_count = self.drawcall_model_list[0].match_index_count
+            self.unique_str = self.drawcall_model_list[0].get_unique_str()
+        
+        self.calc_buffer()
     
 
     def calc_buffer(self):
@@ -69,12 +88,16 @@ class SubMeshModel:
             # 获取到原本的obj
             source_obj = ObjUtils.get_obj_by_name(draw_call_model.obj_name)
 
+            temp_collection = CollectionUtils.create_new_collection("TEMP_SUBMESH_COLLECTION_" + self.unique_str)
+            bpy.context.scene.collection.children.link(temp_collection)
+
+
             # 创建一个新的obj
             temp_obj = ObjUtils.copy_object(
                 context=bpy.context,
-                source_obj=source_obj,
+                obj=source_obj,
                 name=source_obj.name + "_temp",
-                collection=bpy.context.collection
+                collection= temp_collection
             )
 
 
@@ -126,21 +149,43 @@ class SubMeshModel:
 
         # 还需要定位到具体导入时导入的是哪个数据类型
         # 这个在一键导入的时候记录到当前工作空间下的Import.json中了
-        
-        
+        # 先读取Import.json拿到当前导入的是哪个数据类型文件夹名称
+        import_json_path = os.path.join(GlobalConfig.path_workspace_folder(), "Import.json")
+        import_json = JsonUtils.LoadFromFile(import_json_path)
+        gametype_name = import_json.get(folder_name,"")
+        gametype_foldername = "TYPE_" + gametype_name
+        import_folder_path = os.path.join(GlobalConfig.path_workspace_folder(), folder_name)
+        import_json_path = os.path.join(import_folder_path, gametype_foldername, "import.json")
+
+        # 根据import.json中的d3d11_element_list来获取当前SubMeshModel的D3D11GameType
+        self.d3d11_game_type = D3D11GameType(FilePath=import_json_path)
 
         # 检查并校验是否有缺少的元素
-        # ObjBufferHelper.check_and_verify_attributes(obj=submesh_merged_obj, d3d11_game_type=self.d3d11GameType)
+        ObjBufferHelper.check_and_verify_attributes(obj=submesh_merged_obj, d3d11_game_type=self.d3d11_game_type)
         
+        # 创建
+        obj_element_model = ObjElementModel(d3d11_game_type=self.d3d11_game_type,obj_name=submesh_merged_obj.name)
 
+        # 【可选】在这里可以做数据内容转换,例如WWMI的BLENDINDICES REMAP
 
-        
-        # 1.合并当前obj列表的obj到一个临时obj
+        # 赋值回去
+        obj_element_model.element_vertex_ndarray = ObjBufferHelper.convert_to_element_vertex_ndarray(
+            original_elementname_data_dict=obj_element_model.original_elementname_data_dict,
+            final_elementname_data_dict={},
+            mesh=obj_element_model.mesh,
+            d3d11_game_type=self.d3d11_game_type
+        )
 
-        
-        # 2.对临时obj进行预处理
-        
-        # 3.计算临时obj的ib,category_buffer_dict,index_vertex_id_dict等数据，赋值给类属性
+        obj_buffer_model = ObjBufferModelUnity(obj=submesh_merged_obj, d3d11_game_type=self.d3d11_game_type)
+        self.ib = obj_buffer_model.ib
+        self.category_buffer_dict = obj_buffer_model.category_buffer_dict
+        self.index_vertex_id_dict = obj_buffer_model.index_loop_id_dict
 
         # 4.计算完成后，删除临时obj
-        pass
+        bpy.data.objects.remove(submesh_merged_obj, do_unlink=True)
+
+        # 顺便把刚才创建的临时集合也删掉
+        bpy.context.scene.collection.children.unlink(temp_collection)
+        bpy.data.collections.remove(temp_collection)
+
+        print("SubMeshModel: " + self.unique_str + " 计算完成，临时对象已删除")

@@ -25,8 +25,8 @@ def ImprotFromWorkSpaceFull(self, context):
     # 获取当前工作空间文件夹下面的所有文件夹（仅保留名字包含 '-' 的文件夹）
     workspace_subfolders = [f.path for f in os.scandir(current_workspace_folder) if f.is_dir() and '-' in f.name]
 
-    # 读取时保存每个DrawIB对应的GameType名称到工作空间文件夹下面的Import.json，在导出时使用
-    draw_ib_gametypename_dict = {}
+    # 读取时保存每个导入文件夹里导入的GameType名称到工作空间文件夹下面的Import.json，在导出时使用
+    foldername_gametypename_dict = {}
 
     for import_folder_path in workspace_subfolders:
         import_folder_name = os.path.basename(import_folder_path)
@@ -84,13 +84,13 @@ def ImprotFromWorkSpaceFull(self, context):
             # 然后要把这个DrawIB对应的GameType名称保存下来
             import_json = ConfigUtils.read_import_json(import_folder_path)
             work_game_type = import_json.get("WorkGameType","")
-            draw_ib_gametypename_dict[draw_ib] = work_game_type
-            self.report({'INFO'}, "成功导入DrawIB " + draw_ib + " 的数据类型: " + gametype_name)
+            foldername_gametypename_dict[import_folder_name] = work_game_type
+            self.report({'INFO'}, "成功导入" + import_folder_name + " 的数据类型: " + gametype_name)
             break
 
     # 保存Import.json文件
     save_import_json_path = os.path.join(GlobalConfig.path_workspace_folder(),"Import.json")
-    JsonUtils.SaveToFile(json_dict=draw_ib_gametypename_dict,filepath=save_import_json_path)
+    JsonUtils.SaveToFile(json_dict=foldername_gametypename_dict,filepath=save_import_json_path)
     
     # 因为用户习惯了导入后就是全部选中的状态，所以默认选中所有导入的obj
     CollectionUtils.select_collection_objects(workspace_collection)
@@ -99,8 +99,8 @@ def ImprotFromWorkSpaceFull(self, context):
     # 自动生成蓝图节点逻辑
     # ==========================
     try:
-        # 1. 获取或创建蓝图树
-        tree_name = f"Mod_{GlobalConfig.workspacename}" if GlobalConfig.workspacename else "SSMT_Mod_Logic"
+        # 创建蓝图，名称为当前工作空间名称
+        tree_name = GlobalConfig.workspacename
         
         # Nico: 为了防止覆盖用户修改过的蓝图，始终创建新蓝图
         # 如果已存在同名蓝图，Blender会自动添加.001等后缀，从而保留旧蓝图

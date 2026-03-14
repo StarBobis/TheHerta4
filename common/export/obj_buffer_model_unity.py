@@ -4,21 +4,21 @@ import bpy
 
 from dataclasses import dataclass, field
 
-from ..utils.timer_utils import TimerUtils
-from ..utils.shapekey_utils import ShapeKeyUtils
+from ...base.utils.timer_utils import TimerUtils
+from ...base.utils.shapekey_utils import ShapeKeyUtils
 
-from ..config.main_config import GlobalConfig, LogicName
-from ..config.properties_import_model import Properties_ImportModel
-from ..config.properties_generate_mod import Properties_GenerateMod
+from ...base.config.main_config import GlobalConfig, LogicName
+from ...base.config.properties_import_model import Properties_ImportModel
+from ...base.config.properties_generate_mod import Properties_GenerateMod
 
-from .d3d11 import D3D11GameType
+from ..d3d11.d3d11_gametype import D3D11GameType
 from .obj_element_model import ObjElementModel
 
-from ..helper.obj_buffer_helper import ObjBufferHelper
-from ..utils.obj_utils import ObjUtils
+from ...helper.obj_buffer_helper import ObjBufferHelper
+from ...base.utils.obj_utils import ObjUtils
 from .shapekey_buffer_model import ShapeKeyBufferModel
 
-from ..helper.blueprint_export_helper import BlueprintExportHelper
+from ...helper.blueprint_export_helper import BlueprintExportHelper
 
 @dataclass
 class ObjBufferModelUnity:

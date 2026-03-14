@@ -33,7 +33,9 @@ class BluePrintModel:
 
         # 从输出节点开始递归解析所有的节点
         tree = BlueprintExportHelper.get_current_blueprint_tree()
+        print(tree)
         output_node = BlueprintExportHelper.get_node_from_bl_idname(tree, SSMTNode_Result_Output.bl_idname)
+        print("BluePrintModel: 输出节点连接的节点数量: " + str(len(BlueprintExportHelper.get_connected_nodes(output_node))))
         self.parse_current_node(output_node, [])
 
     def parse_current_node(self, current_node:bpy.types.Node, chain_key_list:list[M_Key]):

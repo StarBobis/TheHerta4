@@ -15,7 +15,6 @@ class BlueprintExportHelper:
     def get_current_blueprint_tree():
         """获取当前工作空间对应的蓝图树"""
         tree_name = GlobalConfig.workspacename
-        
         if not tree_name:
             return None
         

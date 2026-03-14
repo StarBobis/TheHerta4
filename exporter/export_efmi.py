@@ -1,7 +1,6 @@
 from ..common.export.blueprint_model import BluePrintModel
 from ..common.export.draw_call_model import DrawCallModel
 from ..common.export.submesh_model import SubMeshModel
-
 from dataclasses import dataclass,field
 
 
@@ -23,6 +22,7 @@ class ExportEFMI:
         for draw_call_model in self.blueprint_model.ordered_draw_obj_data_model_list:
             # 获取独立标识
             unique_str = draw_call_model.get_unique_str()
+            print("ExportEFMI: 解析DrawCallModel，Obj名称: " + draw_call_model.obj_name + " Unique标识: " + unique_str)
 
             # 根据unique_str，加入到字典中，这样每个unique_str都对应一个DrawCallModel列表，用于初始化SubMeshModel
             draw_call_model_list = draw_call_model_dict.get(unique_str,[])
@@ -33,8 +33,13 @@ class ExportEFMI:
         for unique_str, draw_call_model_list in draw_call_model_dict.items():
             submesh_model = SubMeshModel(drawcall_model_list=draw_call_model_list)
             self.submesh_model_list.append(submesh_model)
+        
+        print("ExportEFMI: SubMeshModel列表初始化完成，共有 " + str(len(self.submesh_model_list)) + " 个SubMeshModel")
 
 
     def export(self):
-        pass
+        # 新版EFMI只需要依次导出每个SubMeshModel的内容，甚至无需合并，非常简单
+        for submesh_model in self.submesh_model_list:
+            print("ExportEFMI: 导出SubMeshModel，Unique标识: " + submesh_model.unique_str)
+            
     
