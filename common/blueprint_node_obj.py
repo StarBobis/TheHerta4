@@ -14,6 +14,128 @@ _is_viewing_group_objects = False
 
 _msgbus_owner = object()
 
+_selection_sync_in_progress = False
+_last_selected_objects = frozenset()
+_last_selected_nodes = frozenset()
+_timer_interval = 0.5
+
+
+def _get_all_selected_nodes():
+    """
+    获取所有蓝图节点树中被选中的节点。
+    返回格式: frozenset of (tree_name, node_name) tuples
+    """
+    selected = set()
+    for tree in bpy.data.node_groups:
+        if tree.bl_idname == 'SSMTBlueprintTreeType':
+            for node in tree.nodes:
+                if node.select:
+                    selected.add((tree.name, node.name))
+    return frozenset(selected)
+
+
+def _get_object_from_node(node):
+    """
+    从物体信息节点获取关联的物体。
+    """
+    if node.bl_idname == 'SSMTNode_Object_Info':
+        obj_name = getattr(node, 'object_name', '')
+        if obj_name:
+            return bpy.data.objects.get(obj_name)
+    return None
+
+
+def _get_nodes_for_object(obj):
+    """
+    获取所有引用指定物体的物体信息节点。
+    """
+    nodes = []
+    obj_name = obj.name
+    for tree in bpy.data.node_groups:
+        if tree.bl_idname == 'SSMTBlueprintTreeType':
+            for node in tree.nodes:
+                if node.bl_idname == 'SSMTNode_Object_Info':
+                    if getattr(node, 'object_name', '') == obj_name:
+                        nodes.append((tree, node))
+    return nodes
+
+
+def _sync_selection():
+    """
+    双向同步节点和物体的选择状态。
+    通过比较当前选择状态与上次缓存的状态，决定同步方向。
+    """
+    global _selection_sync_in_progress, _last_selected_objects, _last_selected_nodes
+    
+    if _selection_sync_in_progress:
+        return
+    
+    _selection_sync_in_progress = True
+    try:
+        current_objects = frozenset(obj.name for obj in bpy.context.selected_objects)
+        current_nodes = _get_all_selected_nodes()
+        
+        objects_changed = current_objects != _last_selected_objects
+        nodes_changed = current_nodes != _last_selected_nodes
+        
+        if not objects_changed and not nodes_changed:
+            return
+        
+        if nodes_changed and not objects_changed:
+            _last_selected_nodes = current_nodes
+            target_objects = set()
+            for tree in bpy.data.node_groups:
+                if tree.bl_idname == 'SSMTBlueprintTreeType':
+                    for node in tree.nodes:
+                        if node.select:
+                            obj = _get_object_from_node(node)
+                            if obj:
+                                target_objects.add(obj.name)
+            
+            for obj in bpy.data.objects:
+                should_select = obj.name in target_objects
+                if obj.select_get() != should_select:
+                    obj.select_set(should_select)
+            
+            _last_selected_objects = frozenset(target_objects)
+        
+        elif objects_changed and not nodes_changed:
+            _last_selected_objects = current_objects
+            for tree in bpy.data.node_groups:
+                if tree.bl_idname == 'SSMTBlueprintTreeType':
+                    for node in tree.nodes:
+                        if node.bl_idname == 'SSMTNode_Object_Info':
+                            obj = _get_object_from_node(node)
+                            should_select = obj and obj.name in current_objects
+                            if node.select != should_select:
+                                node.select = should_select
+            
+            _last_selected_nodes = _get_all_selected_nodes()
+        
+        else:
+            _last_selected_nodes = current_nodes
+            _last_selected_objects = current_objects
+    finally:
+        _selection_sync_in_progress = False
+
+
+def _selection_timer_callback():
+    """
+    定时器回调函数，用于定期检查选择状态变化。
+    主要用于检测节点选择变化（depsgraph 无法捕获节点选择变化）。
+    """
+    _sync_selection()
+    return _timer_interval
+
+
+def on_selection_update(scene):
+    """
+    选择状态更新回调函数。
+    通过 depsgraph 更新处理器触发，检查并同步选择状态。
+    主要用于捕获物体选择变化。
+    """
+    _sync_selection()
+
 
 def _update_node_object_references():
     """
@@ -79,6 +201,29 @@ def unsubscribe_from_object_name_changes():
         bpy.app.handlers.undo_post.remove(on_undo_redo_post)
     if on_undo_redo_post in bpy.app.handlers.redo_post:
         bpy.app.handlers.redo_post.remove(on_undo_redo_post)
+
+
+def subscribe_to_selection_sync():
+    """
+    订阅选择同步事件。
+    1. 使用定时器定期检查节点选择变化
+    2. 使用 depsgraph 更新处理器监听物体选择变化
+    """
+    if on_selection_update not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(on_selection_update)
+    if not bpy.app.timers.is_registered(_selection_timer_callback):
+        bpy.app.timers.register(_selection_timer_callback, persistent=True)
+
+
+def unsubscribe_from_selection_sync():
+    """
+    取消订阅选择同步事件。
+    清理定时器和 depsgraph 处理器，防止内存泄漏。
+    """
+    if on_selection_update in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(on_selection_update)
+    if bpy.app.timers.is_registered(_selection_timer_callback):
+        bpy.app.timers.unregister(_selection_timer_callback)
 
 
 
@@ -442,11 +587,6 @@ class SSMTNode_Result_Output(SSMTNodeBase):
             box.label(text=context.scene.global_properties.generate_mod_folder_path)
 
             layout.operator("ssmt.select_generate_mod_folder", icon='FILE_FOLDER')
-        
-        # 添加返回上一层级按钮
-        layout.separator()
-        row = layout.row(align=True)
-        row.operator("ssmt.blueprint_nest_navigate", text="返回上一层级", icon='BACK')
 
     def update(self):
         if self.inputs and self.inputs[-1].is_linked:
@@ -571,9 +711,11 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.VIEW3D_HT_header.append(draw_view3d_header)
     subscribe_to_object_name_changes()
+    subscribe_to_selection_sync()
 
 
 def unregister():
+    unsubscribe_from_selection_sync()
     unsubscribe_from_object_name_changes()
     bpy.types.VIEW3D_HT_header.remove(draw_view3d_header)
     for cls in reversed(classes):
