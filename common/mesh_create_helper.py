@@ -204,10 +204,6 @@ class MeshCreateHelper:
 
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
 
-        if GlobalProterties.use_mirror_workflow():
-            print(f"非镜像工作流：对 {obj.name} 应用镜像变换和面朝向翻转")
-            ObjUtils.apply_mirror_workflow(obj)
-
         bpy.context.view_layer.update()
         bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 

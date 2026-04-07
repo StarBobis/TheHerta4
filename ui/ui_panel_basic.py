@@ -31,7 +31,6 @@ class PanelBasicInformation(bpy.types.Panel):
         layout.label(text=TR.translate("当前配置名称: ") + GlobalConfig.gamename)
         layout.label(text=TR.translate("当前游戏预设: ") + GlobalConfig.logic_name)
         layout.label(text=TR.translate("当前工作空间: ") + GlobalConfig.workspacename)
-        layout.prop(context.scene.global_properties,"use_mirror_workflow",text="使用非镜像工作流")
         
         if len(context.selected_objects) != 0:
             obj = context.selected_objects[0]
