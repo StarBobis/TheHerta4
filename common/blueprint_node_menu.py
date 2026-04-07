@@ -1,10 +1,70 @@
-
 import bpy
+import os
+import json
 from bpy.types import NodeTree, Node, NodeSocket
 
 from .global_config import GlobalConfig
 
 from .blueprint_node_base import SSMTBlueprintTree, SSMTNodeBase
+
+
+def get_blueprint_presets_folder():
+    preset_folder = os.path.join(GlobalConfig.path_ssmt4_global_configs_folder(), "BlueprintPresets\\")
+    if not os.path.exists(preset_folder):
+        os.makedirs(preset_folder)
+    return preset_folder
+
+
+def get_all_presets():
+    preset_folder = get_blueprint_presets_folder()
+    presets = []
+    if os.path.exists(preset_folder):
+        for filename in os.listdir(preset_folder):
+            if filename.endswith('.json'):
+                preset_path = os.path.join(preset_folder, filename)
+                try:
+                    with open(preset_path, 'r', encoding='utf-8') as f:
+                        preset_data = json.load(f)
+                        presets.append({
+                            'name': preset_data.get('name', filename[:-5]),
+                            'filename': filename,
+                            'path': preset_path
+                        })
+                except:
+                    pass
+    return presets
+
+
+def generate_preset_name_from_nodes(nodes):
+    node_types = {}
+    for node in nodes:
+        bl_idname = node.bl_idname
+        if bl_idname not in node_types:
+            node_types[bl_idname] = 0
+        node_types[bl_idname] += 1
+    
+    type_names = {
+        'SSMTNode_Object_Info': 'Object',
+        'SSMTNode_Object_Group': 'Group',
+        'SSMTNode_SwitchKey': 'Switch',
+        'SSMTNode_Result_Output': 'Output',
+        'SSMTNode_ShapeKey': 'ShapeKey',
+        'SSMTNode_ShapeKey_Output': 'ShapeKeyOut',
+        'NodeFrame': 'Frame'
+    }
+    
+    parts = []
+    for bl_idname, count in node_types.items():
+        display_name = type_names.get(bl_idname, bl_idname.replace('SSMTNode_', '').replace('Node', ''))
+        if count > 1:
+            parts.append(f"{display_name}x{count}")
+        else:
+            parts.append(display_name)
+    
+    if not parts:
+        return "New Preset"
+    
+    return " + ".join(parts[:3])
 
 
 class SSMT_OT_CreateGroupFromSelection(bpy.types.Operator):
@@ -229,75 +289,266 @@ class SSMT_MT_NodeMenu_ShapeKey(bpy.types.Menu):
         layout.operator("node.add_node", text="Generate ShapeKey Buffer", icon='EXPORT').type = "SSMTNode_ShapeKey_Output"
 
 
-class SSMT_OT_AddCommonKeySwitches(bpy.types.Operator):
-    '''Add 9 Switch Key nodes (CTRL 1-9), group them and connect to Output'''
-    bl_idname = "ssmt.add_common_key_switches"
-    bl_label = "常用按键切换"
+class SSMT_OT_SaveSelectionAsPreset(bpy.types.Operator):
+    '''将选中的节点保存为预设'''
+    bl_idname = "ssmt.save_selection_as_preset"
+    bl_label = "保存选中节点为预设"
     bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        # 1. Get/Create Node Tree
-        GlobalConfig.read_from_main_json_ssmt4()
-        workspace_name = f"{GlobalConfig.workspacename}" if GlobalConfig.workspacename else "SSMT_Mod_Logic"
-        node_tree = bpy.data.node_groups.get(workspace_name)
+    
+    preset_name: bpy.props.StringProperty(name="预设名称", default="") # type: ignore
+    
+    @classmethod
+    def poll(cls, context):
+        space_data = getattr(context, "space_data", None)
+        if not space_data or space_data.type != 'NODE_EDITOR':
+            return False
+        node_tree = getattr(space_data, "edit_tree", None) or getattr(space_data, "node_tree", None)
         if not node_tree or node_tree.bl_idname != 'SSMTBlueprintTreeType':
-            node_tree = bpy.data.node_groups.new(name=workspace_name, type='SSMTBlueprintTreeType')
-
-        # 2. Add Nodes
-        nodes = node_tree.nodes
-        links = node_tree.links
+            return False
+        selected_nodes = [node for node in node_tree.nodes if node.select]
+        return len(selected_nodes) > 0
+    
+    def invoke(self, context, event):
+        space_data = getattr(context, "space_data", None)
+        node_tree = getattr(space_data, "edit_tree", None) or getattr(space_data, "node_tree", None)
+        selected_nodes = [node for node in node_tree.nodes if node.select]
         
-        # Base location
-        base_x, base_y = 0, 0
+        if not self.preset_name:
+            self.preset_name = generate_preset_name_from_nodes(selected_nodes)
         
-        # Create Frame Node
-        frame_node = nodes.new(type='NodeFrame')
-        frame_node.label = "常用按键切换组"
-        frame_node.location = (base_x - 50, base_y + 100)
-
-        # Create Group Node
-        group_node = nodes.new(type='SSMTNode_Object_Group')
-        group_node.location = (base_x + 300, base_y)
-        group_node.parent = frame_node
+        return context.window_manager.invoke_props_dialog(self)
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "preset_name", text="预设名称")
+    
+    def execute(self, context):
+        if not self.preset_name or not self.preset_name.strip():
+            self.report({'WARNING'}, "请输入预设名称")
+            return {'CANCELLED'}
         
-        # Create or Find Output Node
-        output_node = None
-        for node in nodes:
-            if node.bl_idname == 'SSMTNode_Result_Output':
-                output_node = node
-                break
+        space_data = getattr(context, "space_data", None)
+        node_tree = getattr(space_data, "edit_tree", None) or getattr(space_data, "node_tree", None)
         
-        if not output_node:
-            output_node = nodes.new(type='SSMTNode_Result_Output')
-            output_node.location = (base_x + 600, base_y)
-        else:
-            # If finding existing one, maybe move it if it's far? No, keep it.
-            pass
-
-        # Connect Group -> Output
-        if output_node.inputs:
-            target_socket = output_node.inputs[-1]
-            links.new(group_node.outputs[0], target_socket)
-            if hasattr(output_node, "update"):
-                output_node.update()
-
-        # Create 9 Switch Keys
-        key_names = [f"CTRL {i}" for i in range(1, 10)]
+        if not node_tree:
+            self.report({'WARNING'}, "未找到节点树")
+            return {'CANCELLED'}
         
-        for i, key_name in enumerate(key_names):
-            key_node = nodes.new(type='SSMTNode_SwitchKey')
-            key_node.location = (base_x, base_y - i * 200)
-            key_node.key_name = key_name
-            key_node.parent = frame_node
-            # key_node.label = key_name # Optional: override label? No need.
+        selected_nodes = [node for node in node_tree.nodes if node.select]
+        
+        if not selected_nodes:
+            self.report({'WARNING'}, "请先选择要保存的节点")
+            return {'CANCELLED'}
+        
+        min_x = min(node.location.x for node in selected_nodes)
+        min_y = min(node.location.y for node in selected_nodes)
+        
+        nodes_data = []
+        node_name_map = {}
+        
+        for i, node in enumerate(selected_nodes):
+            node_data = {
+                'original_name': node.name,
+                'bl_idname': node.bl_idname,
+                'label': getattr(node, 'label', ''),
+                'location': [node.location.x - min_x, node.location.y - min_y],
+                'width': node.width,
+                'use_custom_color': getattr(node, 'use_custom_color', False),
+                'color': list(node.color) if hasattr(node, 'color') else [0.5, 0.5, 0.5],
+                'properties': {}
+            }
             
-            # Connect Key -> Group
-            if group_node.inputs:
-                target_socket = group_node.inputs[-1]
-                links.new(key_node.outputs[0], target_socket)
-                if hasattr(group_node, "update"):
-                    group_node.update()
+            if node.bl_idname == 'SSMTNode_Object_Info':
+                node_data['properties']['object_name'] = getattr(node, 'object_name', '')
+                node_data['properties']['draw_ib'] = getattr(node, 'draw_ib', '')
+                node_data['properties']['index_count'] = getattr(node, 'index_count', '')
+                node_data['properties']['first_index'] = getattr(node, 'first_index', '')
+                node_data['properties']['alias_name'] = getattr(node, 'alias_name', '')
+            elif node.bl_idname == 'SSMTNode_SwitchKey':
+                node_data['properties']['key_name'] = getattr(node, 'key_name', '')
+                node_data['properties']['comment'] = getattr(node, 'comment', '')
+            elif node.bl_idname == 'SSMTNode_ShapeKey':
+                node_data['properties']['shapekey_name'] = getattr(node, 'shapekey_name', '')
+                node_data['properties']['shapekey_value'] = getattr(node, 'shapekey_value', 0.0)
+            
+            node_name_map[node.name] = i
+            nodes_data.append(node_data)
+        
+        links_data = []
+        for link in node_tree.links:
+            if link.from_node in selected_nodes and link.to_node in selected_nodes:
+                from_idx = node_name_map[link.from_node.name]
+                to_idx = node_name_map[link.to_node.name]
+                
+                from_socket_idx = -1
+                for idx, socket in enumerate(link.from_node.outputs):
+                    if socket == link.from_socket:
+                        from_socket_idx = idx
+                        break
+                
+                to_socket_idx = -1
+                for idx, socket in enumerate(link.to_node.inputs):
+                    if socket == link.to_socket:
+                        to_socket_idx = idx
+                        break
+                
+                if from_socket_idx >= 0 and to_socket_idx >= 0:
+                    links_data.append({
+                        'from_node': from_idx,
+                        'from_socket': from_socket_idx,
+                        'to_node': to_idx,
+                        'to_socket': to_socket_idx
+                    })
+        
+        preset_data = {
+            'name': self.preset_name.strip(),
+            'version': 1,
+            'nodes': nodes_data,
+            'links': links_data
+        }
+        
+        safe_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in self.preset_name.strip())
+        preset_filename = f"{safe_name}.json"
+        preset_path = os.path.join(get_blueprint_presets_folder(), preset_filename)
+        
+        counter = 1
+        while os.path.exists(preset_path):
+            preset_filename = f"{safe_name}_{counter}.json"
+            preset_path = os.path.join(get_blueprint_presets_folder(), preset_filename)
+            counter += 1
+        
+        with open(preset_path, 'w', encoding='utf-8') as f:
+            json.dump(preset_data, f, ensure_ascii=False, indent=2)
+        
+        self.report({'INFO'}, f"预设 '{self.preset_name}' 已保存")
+        return {'FINISHED'}
 
+
+class SSMT_OT_LoadPreset(bpy.types.Operator):
+    '''加载预设并创建节点'''
+    bl_idname = "ssmt.load_preset"
+    bl_label = "加载预设"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    preset_path: bpy.props.StringProperty(default="") # type: ignore
+    
+    @classmethod
+    def poll(cls, context):
+        space_data = getattr(context, "space_data", None)
+        if not space_data or space_data.type != 'NODE_EDITOR':
+            return False
+        node_tree = getattr(space_data, "edit_tree", None) or getattr(space_data, "node_tree", None)
+        return node_tree and node_tree.bl_idname == 'SSMTBlueprintTreeType'
+    
+    def execute(self, context):
+        if not self.preset_path or not os.path.exists(self.preset_path):
+            self.report({'WARNING'}, "预设文件不存在")
+            return {'CANCELLED'}
+        
+        space_data = getattr(context, "space_data", None)
+        node_tree = getattr(space_data, "edit_tree", None) or getattr(space_data, "node_tree", None)
+        
+        if not node_tree:
+            self.report({'WARNING'}, "未找到节点树")
+            return {'CANCELLED'}
+        
+        try:
+            with open(self.preset_path, 'r', encoding='utf-8') as f:
+                preset_data = json.load(f)
+        except Exception as e:
+            self.report({'ERROR'}, f"读取预设失败: {str(e)}")
+            return {'CANCELLED'}
+        
+        nodes_data = preset_data.get('nodes', [])
+        links_data = preset_data.get('links', [])
+        
+        if not nodes_data:
+            self.report({'WARNING'}, "预设中没有节点数据")
+            return {'CANCELLED'}
+        
+        for node in node_tree.nodes:
+            node.select = False
+        
+        mouse_x = space_data.cursor_location[0] if hasattr(space_data, 'cursor_location') else 0
+        mouse_y = space_data.cursor_location[1] if hasattr(space_data, 'cursor_location') else 0
+        
+        created_nodes = []
+        
+        for node_data in nodes_data:
+            bl_idname = node_data.get('bl_idname')
+            
+            if bl_idname == 'NodeFrame':
+                new_node = node_tree.nodes.new(type='NodeFrame')
+            else:
+                new_node = node_tree.nodes.new(type=bl_idname)
+            
+            loc = node_data.get('location', [0, 0])
+            new_node.location = (mouse_x + loc[0], mouse_y + loc[1])
+            
+            if node_data.get('label'):
+                new_node.label = node_data['label']
+            
+            if 'width' in node_data:
+                new_node.width = node_data['width']
+            
+            if node_data.get('use_custom_color', False):
+                new_node.use_custom_color = True
+                color = node_data.get('color', [0.5, 0.5, 0.5])
+                new_node.color = tuple(color)
+            
+            properties = node_data.get('properties', {})
+            for prop_name, prop_value in properties.items():
+                if hasattr(new_node, prop_name):
+                    try:
+                        setattr(new_node, prop_name, prop_value)
+                    except:
+                        pass
+            
+            new_node.select = True
+            created_nodes.append(new_node)
+        
+        for link_data in links_data:
+            from_idx = link_data.get('from_node', -1)
+            to_idx = link_data.get('to_node', -1)
+            from_socket_idx = link_data.get('from_socket', 0)
+            to_socket_idx = link_data.get('to_socket', 0)
+            
+            if 0 <= from_idx < len(created_nodes) and 0 <= to_idx < len(created_nodes):
+                from_node = created_nodes[from_idx]
+                to_node = created_nodes[to_idx]
+                
+                if from_socket_idx < len(from_node.outputs) and to_socket_idx < len(to_node.inputs):
+                    node_tree.links.new(from_node.outputs[from_socket_idx], to_node.inputs[to_socket_idx])
+        
+        preset_name = preset_data.get('name', 'Unknown')
+        self.report({'INFO'}, f"已加载预设 '{preset_name}'，创建了 {len(created_nodes)} 个节点")
+        return {'FINISHED'}
+
+
+class SSMT_OT_DeletePreset(bpy.types.Operator):
+    '''删除预设'''
+    bl_idname = "ssmt.delete_preset"
+    bl_label = "删除预设"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    preset_path: bpy.props.StringProperty(default="") # type: ignore
+    preset_name: bpy.props.StringProperty(default="") # type: ignore
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+    
+    def execute(self, context):
+        if not self.preset_path or not os.path.exists(self.preset_path):
+            self.report({'WARNING'}, "预设文件不存在")
+            return {'CANCELLED'}
+        
+        try:
+            os.remove(self.preset_path)
+            self.report({'INFO'}, f"预设 '{self.preset_name}' 已删除")
+        except Exception as e:
+            self.report({'ERROR'}, f"删除预设失败: {str(e)}")
+            return {'CANCELLED'}
+        
         return {'FINISHED'}
 
 
@@ -741,7 +992,40 @@ class SSMT_MT_NodeMenu_Preset(bpy.types.Menu):
     
     def draw(self, context):
         layout = self.layout
-        layout.operator("ssmt.add_common_key_switches", text="常用按键开关", icon='PRESET')
+        presets = get_all_presets()
+        
+        if presets:
+            for preset in presets:
+                row = layout.row(align=True)
+                op = row.operator("ssmt.load_preset", text=preset['name'], icon='NODETREE')
+                op.preset_path = preset['path']
+                
+                del_op = row.operator("ssmt.delete_preset", text="", icon='X')
+                del_op.preset_path = preset['path']
+                del_op.preset_name = preset['name']
+        else:
+            layout.label(text="暂无保存的预设", icon='INFO')
+            layout.label(text="框选节点后右键保存为预设")
+
+
+class SSMT_MT_NodeMenu_Preset_Manage(bpy.types.Menu):
+    bl_label = "预设管理"
+    
+    def draw(self, context):
+        layout = self.layout
+        presets = get_all_presets()
+        
+        if presets:
+            for preset in presets:
+                row = layout.row(align=True)
+                op = row.operator("ssmt.load_preset", text=preset['name'], icon='NODETREE')
+                op.preset_path = preset['path']
+                
+                del_op = row.operator("ssmt.delete_preset", text="", icon='X')
+                del_op.preset_path = preset['path']
+                del_op.preset_name = preset['name']
+        else:
+            layout.label(text="暂无保存的预设", icon='INFO')
 
 def draw_node_add_menu(self, context):
     if not isinstance(context.space_data, bpy.types.SpaceNodeEditor):
@@ -771,6 +1055,18 @@ def draw_node_context_menu(self, context):
     
     layout = self.layout
     layout.separator()
+    
+    node_tree = getattr(context.space_data, "edit_tree", None) or getattr(context.space_data, "node_tree", None)
+    if node_tree:
+        selected_nodes = [node for node in node_tree.nodes if node.select]
+        if len(selected_nodes) > 0:
+            layout.context_pointer_set("node_tree", node_tree)
+            old_context = layout.operator_context
+            layout.operator_context = 'INVOKE_DEFAULT'
+            op = layout.operator("ssmt.save_selection_as_preset", text="保存选中节点为预设", icon='FILE_TICK')
+            layout.operator_context = old_context
+            layout.separator()
+    
     layout.operator("ssmt.align_nodes", text="矩阵对齐节点", icon='GRID')
     layout.operator("ssmt.batch_connect_nodes", text="批量连接节点", icon='LINKED')
     layout.separator()
@@ -780,11 +1076,14 @@ def draw_node_context_menu(self, context):
 def register():
     bpy.utils.register_class(SSMT_OT_CreateGroupFromSelection)
     bpy.utils.register_class(SSMT_OT_CreateInternalSwitch)
-    bpy.utils.register_class(SSMT_OT_AddCommonKeySwitches)
+    bpy.utils.register_class(SSMT_OT_SaveSelectionAsPreset)
+    bpy.utils.register_class(SSMT_OT_LoadPreset)
+    bpy.utils.register_class(SSMT_OT_DeletePreset)
     bpy.utils.register_class(SSMT_OT_AlignNodes)
     bpy.utils.register_class(SSMT_OT_BatchConnectNodes)
     bpy.utils.register_class(SSMT_MT_ObjectContextMenuSub)
     bpy.utils.register_class(SSMT_MT_NodeMenu_Preset)
+    bpy.utils.register_class(SSMT_MT_NodeMenu_Preset_Manage)
     bpy.utils.register_class(SSMT_MT_NodeMenu_Branch)
     bpy.utils.register_class(SSMT_MT_NodeMenu_ShapeKey)
 
@@ -799,10 +1098,13 @@ def unregister():
 
     bpy.utils.unregister_class(SSMT_MT_NodeMenu_ShapeKey)
     bpy.utils.unregister_class(SSMT_MT_NodeMenu_Branch)
+    bpy.utils.unregister_class(SSMT_MT_NodeMenu_Preset_Manage)
     bpy.utils.unregister_class(SSMT_MT_NodeMenu_Preset)
     bpy.utils.unregister_class(SSMT_MT_ObjectContextMenuSub)
     bpy.utils.unregister_class(SSMT_OT_BatchConnectNodes)
     bpy.utils.unregister_class(SSMT_OT_AlignNodes)
-    bpy.utils.unregister_class(SSMT_OT_AddCommonKeySwitches)
+    bpy.utils.unregister_class(SSMT_OT_DeletePreset)
+    bpy.utils.unregister_class(SSMT_OT_LoadPreset)
+    bpy.utils.unregister_class(SSMT_OT_SaveSelectionAsPreset)
     bpy.utils.unregister_class(SSMT_OT_CreateInternalSwitch)
     bpy.utils.unregister_class(SSMT_OT_CreateGroupFromSelection)
