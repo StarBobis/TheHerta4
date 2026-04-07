@@ -12,6 +12,74 @@ _picking_node_name = None
 _picking_tree_name = None
 _is_viewing_group_objects = False
 
+_msgbus_owner = object()
+
+
+def _update_node_object_references():
+    """
+    更新所有物体信息节点中的物体引用。
+    通过 object_id（物体内存指针）匹配物体，当物体名称发生变化时自动更新节点的 object_name。
+    """
+    for tree in bpy.data.node_groups:
+        if tree.bl_idname == 'SSMTBlueprintTreeType':
+            for node in tree.nodes:
+                if node.bl_idname == 'SSMTNode_Object_Info':
+                    obj_id = getattr(node, 'object_id', '')
+                    if not obj_id:
+                        continue
+                    
+                    for obj in bpy.data.objects:
+                        if str(obj.as_pointer()) == obj_id:
+                            if node.object_name != obj.name:
+                                node.object_name = obj.name
+                            break
+
+
+def on_object_name_changed():
+    """
+    物体名称变更回调函数。
+    当任何物体的 name 属性发生变化时，由 msgbus 触发此函数。
+    """
+    _update_node_object_references()
+
+
+def on_undo_redo_post(scene):
+    """
+    撤销/重做操作完成后的回调函数。
+    由于撤销/重做不会触发 msgbus 消息，需要通过 app handlers 来捕获这些操作。
+    """
+    _update_node_object_references()
+
+
+def subscribe_to_object_name_changes():
+    """
+    订阅物体名称变更事件。
+    1. 使用 msgbus 监听物体 name 属性的直接修改
+    2. 使用 app handlers 监听撤销/重做操作
+    """
+    bpy.msgbus.subscribe_rna(
+        key=(bpy.types.Object, "name"),
+        owner=_msgbus_owner,
+        args=(),
+        notify=on_object_name_changed,
+    )
+    if on_undo_redo_post not in bpy.app.handlers.undo_post:
+        bpy.app.handlers.undo_post.append(on_undo_redo_post)
+    if on_undo_redo_post not in bpy.app.handlers.redo_post:
+        bpy.app.handlers.redo_post.append(on_undo_redo_post)
+
+
+def unsubscribe_from_object_name_changes():
+    """
+    取消订阅物体名称变更事件。
+    清理 msgbus 订阅和 app handlers，防止内存泄漏。
+    """
+    bpy.msgbus.clear_by_owner(_msgbus_owner)
+    if on_undo_redo_post in bpy.app.handlers.undo_post:
+        bpy.app.handlers.undo_post.remove(on_undo_redo_post)
+    if on_undo_redo_post in bpy.app.handlers.redo_post:
+        bpy.app.handlers.redo_post.remove(on_undo_redo_post)
+
 
 
 class SSMT_OT_RefreshNodeObjectIDs(bpy.types.Operator):
@@ -40,22 +108,6 @@ class SSMT_OT_RefreshNodeObjectIDs(bpy.types.Operator):
                             elif obj_id:
                                 node.object_id = ""
                                 updated_count += 1
-                    
-                    elif node.bl_idname == 'SSMTNode_MultiFile_Export':
-                        for item in node.object_list:
-                            obj_name = getattr(item, 'object_name', '')
-                            if obj_name:
-                                obj = bpy.data.objects.get(obj_name)
-                                if obj:
-                                    new_name = obj.name
-                                    if item.object_name != new_name:
-                                        item.object_name = new_name
-                                        updated_count += 1
-                                elif getattr(item, 'original_object_name', ''):
-                                    orig_obj = bpy.data.objects.get(item.original_object_name)
-                                    if orig_obj:
-                                        item.object_name = item.original_object_name
-                                        updated_count += 1
         
         if updated_count > 0:
             self.report({'INFO'}, f"已更新 {updated_count} 个节点的物体引用")
@@ -518,9 +570,11 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.VIEW3D_HT_header.append(draw_view3d_header)
+    subscribe_to_object_name_changes()
 
 
 def unregister():
+    unsubscribe_from_object_name_changes()
     bpy.types.VIEW3D_HT_header.remove(draw_view3d_header)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
