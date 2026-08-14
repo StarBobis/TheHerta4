@@ -19,6 +19,12 @@ from .global_config import LogicName
 from .gimi_high_fidelity_material import GIMIHighFidelityMaterial
 from .gimi_body_outline import GIMIBodyOutline, OutlineError
 from .d3d11_element import D3D11Element
+from .raw_vertex_attributes import (
+    RAW_COLOR_ALPHA_ATTRIBUTE_PREFIX,
+    RAW_NORMAL_W_ATTRIBUTE_PREFIX,
+    RAW_TANGENT_ATTRIBUTE_PREFIX,
+    store_raw_bytes,
+)
 
 
 class MeshCreateHelper:
@@ -82,6 +88,17 @@ class MeshCreateHelper:
             TimerUtils.Start(f"Process Element: {element.ElementName}")
             print("当前Element: " + element.ElementName)
             print("当前数据转换前 Shape: " + str(data.shape))
+
+            # Blender has no native representation for these game-specific
+            # components. Keep their source bytes on vertices before conversion.
+            if element.SemanticName == "TANGENT":
+                store_raw_bytes(mesh, RAW_TANGENT_ATTRIBUTE_PREFIX, data, element.ByteWidth)
+            elif data.ndim > 1 and data.shape[1] >= 4:
+                component_width = element.ByteWidth // data.shape[1]
+                if element.SemanticName.startswith("NORMAL"):
+                    store_raw_bytes(mesh, RAW_NORMAL_W_ATTRIBUTE_PREFIX, data[:, 3:4], component_width)
+                elif element.SemanticName.startswith("COLOR"):
+                    store_raw_bytes(mesh, RAW_COLOR_ALPHA_ATTRIBUTE_PREFIX + ":" + element.ElementName, data[:, 3:4], component_width)
 
             
             data = FormatUtils.apply_format_conversion(data, element.Format)
