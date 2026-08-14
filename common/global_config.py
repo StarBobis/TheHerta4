@@ -81,14 +81,26 @@ class GlobalConfig:
             # SSMT4 panel must read SSMT tool's own settings only,
             # never fall back to MMT / MIMITools settings here.
             main_settings = GlobalConfig._ssmt_settings()
-            cls.workspacename = main_settings.get("CurrentWorkSpace", "")
             cls.gamename = main_settings.get("CurrentGameName", "")
-            # SSMTWorkFolder is the cache folder written by SSMT tool.
-            # DBMTWorkFolder belongs to MMT, so it must not be used here.
-            ssmt_work_folder = str(main_settings.get("SSMTWorkFolder", "") or "").strip()
-            cls.ssmtlocation = ""
-            if ssmt_work_folder:
-                cls.ssmtlocation = ssmt_work_folder + "\\"
+            # SSMT records the workspace name per game in CurrentWorkSpaceByGame,
+            # which has higher priority than the global CurrentWorkSpace.
+            workspace_by_game = main_settings.get("CurrentWorkSpaceByGame", {})
+            if not isinstance(workspace_by_game, dict):
+                workspace_by_game = {}
+            cls.workspacename = str(
+                workspace_by_game.get(cls.gamename, "")
+                or main_settings.get("CurrentWorkSpace", "")
+                or ""
+            )
+            # SSMT writes its cache folder path under the legacy key
+            # "DBMTWorkFolder" in SSMT4GlobalConfigs/settings.json.
+            # When the key is empty, SSMT uses the default SSMT4CachedFolder.
+            ssmt_work_folder = str(main_settings.get("DBMTWorkFolder", "") or "").strip()
+            if not ssmt_work_folder:
+                ssmt_work_folder = os.path.join(
+                    GlobalConfig.path_appdata_local(), "SSMT4CachedFolder"
+                )
+            cls.ssmtlocation = ssmt_work_folder + "\\"
 
             # SSMT4 panel only trusts the game config written by SSMT itself,
             # MMT / MIMITools game configs must not leak into this panel.
