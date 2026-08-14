@@ -78,28 +78,27 @@ class GlobalConfig:
     @classmethod
     def read_from_main_json_ssmt4(cls) :
         try:
-            main_settings = GlobalConfig._mimitools_settings()
-            cls.workspacename = main_settings.get("CurrentWorkSpace", "") or main_settings.get("ReversedWorkSpaceName", "")
+            # SSMT4 panel must read SSMT tool's own settings only,
+            # never fall back to MMT / MIMITools settings here.
+            main_settings = GlobalConfig._ssmt_settings()
+            cls.workspacename = main_settings.get("CurrentWorkSpace", "")
             cls.gamename = main_settings.get("CurrentGameName", "")
-            ssmt_work_folder = str(
-                main_settings.get("SSMTWorkFolder")
-                or main_settings.get("DBMTWorkFolder")
-                or ""
-            ).strip()
+            # SSMTWorkFolder is the cache folder written by SSMT tool.
+            # DBMTWorkFolder belongs to MMT, so it must not be used here.
+            ssmt_work_folder = str(main_settings.get("SSMTWorkFolder", "") or "").strip()
             cls.ssmtlocation = ""
             if ssmt_work_folder:
                 cls.ssmtlocation = ssmt_work_folder + "\\"
 
+            # SSMT4 panel only trusts the game config written by SSMT itself,
+            # MMT / MIMITools game configs must not leak into this panel.
             game_config_json_path = ""
-            for configs_folder in (
+            candidate = os.path.join(
                 GlobalConfig.path_ssmt4_global_configs_folder(),
-                GlobalConfig.path_mmt_global_configs_folder(),
-                GlobalConfig.path_mimitools_global_configs_folder(),
-            ):
-                candidate = os.path.join(configs_folder, "Games", cls.gamename, "Config.json")
-                if os.path.exists(candidate):
-                    game_config_json_path = candidate
-                    break
+                "Games", cls.gamename, "Config.json"
+            )
+            if os.path.exists(candidate):
+                game_config_json_path = candidate
 
             game_config_json = GlobalConfig._load_json_dict(game_config_json_path)
             cls.current_game_migoto_folder = game_config_json.get("installDir", "")
@@ -126,7 +125,8 @@ class GlobalConfig:
     
     @staticmethod
     def path_reverse_output_folder():
-        settings = GlobalConfig._mimitools_settings()
+        # Reverse output belongs to the MMT toolchain, read MMT settings first.
+        settings = GlobalConfig._mmt_family_settings()
         reverse_output_folder = str(settings.get("ReverseOutputFolder", "") or "").strip()
         if reverse_output_folder:
             return reverse_output_folder
@@ -159,23 +159,41 @@ class GlobalConfig:
         return {}
 
     @staticmethod
-    def _mimitools_settings():
-        settings = GlobalConfig._load_json_dict(
+    def _ssmt_settings():
+        # Read SSMT tool's own settings file only, no cross-tool fallback.
+        return GlobalConfig._load_json_dict(
             os.path.join(GlobalConfig.path_ssmt4_global_configs_folder(), "settings.json")
         )
+
+    @staticmethod
+    def _mmt_settings():
+        # Read MMT tool's own settings file only, no cross-tool fallback.
+        return GlobalConfig._load_json_dict(GlobalConfig.path_mmt_settings_json())
+
+    @staticmethod
+    def _mimitools_settings():
+        # Read MIMITools settings file only, no cross-tool fallback.
+        return GlobalConfig._load_json_dict(GlobalConfig.path_mimitools_settings_json())
+
+    @staticmethod
+    def _mmt_family_settings():
+        # The reverse toolchain is shared by MMT and MIMITools.
+        # MMT has higher priority, SSMT settings must never be read here.
+        settings = GlobalConfig._mmt_settings()
         if not settings:
-            settings = GlobalConfig._load_json_dict(GlobalConfig.path_mmt_settings_json())
-        if not settings:
-            settings = GlobalConfig._load_json_dict(GlobalConfig.path_mimitools_settings_json())
+            settings = GlobalConfig._mimitools_settings()
         return settings
 
     @staticmethod
     def path_mimitools_reversed_root():
-        settings = GlobalConfig._mimitools_settings()
+        # Sword4 panel reads the MMT toolchain only, SSMT is never involved.
+        settings = GlobalConfig._mmt_family_settings()
         work_folder = str(settings.get("DBMTWorkFolder", "") or "").strip()
         if work_folder:
             return os.path.join(work_folder, "Reversed")
-        for cache_folder_name in ("MMTCachedFolder", "MIMIToolsCachedFolder", "SSMT4CachedFolder"):
+        # Only MMT / MIMITools cache folders are valid here,
+        # SSMT4CachedFolder must not be used by Sword4 panel.
+        for cache_folder_name in ("MMTCachedFolder", "MIMIToolsCachedFolder"):
             candidate = os.path.join(GlobalConfig.path_appdata_local(), cache_folder_name, "Reversed")
             if os.path.isdir(candidate):
                 return candidate
@@ -183,7 +201,8 @@ class GlobalConfig:
 
     @staticmethod
     def path_mimitools_reverse_output_folder():
-        settings = GlobalConfig._mimitools_settings()
+        # Reverse output folder is stored by the MMT toolchain only.
+        settings = GlobalConfig._mmt_family_settings()
         reverse_output_folder = str(settings.get("ReverseOutputFolder", "") or "").strip()
         if reverse_output_folder:
             return reverse_output_folder

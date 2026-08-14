@@ -24,13 +24,11 @@ def _get_sword_reversed_workspace_items(self, context):
     global sword_reversed_workspace_items_cache
 
     try:
-        GlobalConfig.read_from_main_json_ssmt4()
+        # Sword4 panel reads MMT toolchain only, never the SSMT cache folder.
         reversed_root = GlobalConfig.path_mimitools_reversed_root()
-        if not reversed_root:
-            reversed_root = os.path.join(GlobalConfig.ssmtlocation, "Reversed")
         if not reversed_root or not os.path.isdir(reversed_root):
             sword_reversed_workspace_items_cache = [
-                ("", "当前没有可用逆向工作空间", "请确认 MMT / MIMITools / SSMT 缓存目录下存在 Reversed 文件夹")
+                ("", "当前没有可用逆向工作空间", "请确认 MMT / MIMITools 缓存目录下存在 Reversed 文件夹")
             ]
             return sword_reversed_workspace_items_cache
 
@@ -302,17 +300,18 @@ class SwordImportAllReversed(bpy.types.Operator):
     bl_description = "把上一次一键逆向出来的所有模型全部导入到Blender，然后你可以手动筛选并删除错误的数据类型，流程上更加方便。"
 
     def _resolve_reverse_output_folder_path(self, context):
-        GlobalConfig.read_from_main_json_ssmt4()
-
+        # Reversed paths come from MMT settings only, no SSMT config needed.
         source_mode = context.scene.sword_reverse_source_mode
         if source_mode == "SPECIFIC":
             selected_workspace_name = context.scene.sword_specific_reversed_workspace_name
             if not selected_workspace_name:
                 self.report({"ERROR"}, "当前未选择指定工作空间，请先选择 Reversed 下的子文件夹")
                 return ""
+            # Sword4 panel reads MMT toolchain only, never the SSMT cache folder.
             reversed_root = GlobalConfig.path_mimitools_reversed_root()
             if not reversed_root:
-                reversed_root = os.path.join(GlobalConfig.ssmtlocation, "Reversed")
+                self.report({"ERROR"}, "未找到 MMT 的 Reversed 目录，请先在 MMT 中运行一键逆向")
+                return ""
             return os.path.join(reversed_root, selected_workspace_name)
 
         if source_mode == "CUSTOM":
@@ -388,11 +387,10 @@ class SwordImportAllReversed(bpy.types.Operator):
 class SWORD4RefreshReversedWorkspaceList(bpy.types.Operator):
     bl_idname = "ssmt4.sword_refresh_reversed_workspace_list"
     bl_label = "刷新逆向工作空间列表"
-    bl_description = "刷新当前 MMT / MIMITools / SSMT 缓存目录下 Reversed 文件夹的子文件夹列表"
+    bl_description = "刷新当前 MMT / MIMITools 缓存目录下 Reversed 文件夹的子文件夹列表"
 
     def execute(self, context):
-        GlobalConfig.read_from_main_json_ssmt4()
-
+        # Reversed workspace list comes from MMT settings only.
         for window in context.window_manager.windows:
             for area in window.screen.areas:
                 area.tag_redraw()
@@ -565,14 +563,14 @@ def register():
         description="控制一键导入逆向结果时的目录来源",
         items=[
             ("LAST", "上次逆向结果", "使用全局配置中记录的上次逆向输出目录"),
-            ("SPECIFIC", "指定工作空间", "使用 MMT / MIMITools / SSMT 缓存目录下 Reversed 中指定的子文件夹"),
+            ("SPECIFIC", "指定工作空间", "使用 MMT / MIMITools 缓存目录下 Reversed 中指定的子文件夹"),
             ("CUSTOM", "自定义目录", "使用你手动指定的目录"),
         ],
         default="LAST",
     )
     bpy.types.Scene.sword_specific_reversed_workspace_name = EnumProperty(
         name="指定工作空间",
-        description="当前 MMT / MIMITools / SSMT 缓存目录下 Reversed 的子文件夹列表",
+        description="当前 MMT / MIMITools 缓存目录下 Reversed 的子文件夹列表",
         items=_get_sword_reversed_workspace_items,
     )
     bpy.types.Scene.sword_custom_reverse_output_folder_path = StringProperty(
