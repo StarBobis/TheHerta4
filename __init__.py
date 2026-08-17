@@ -21,6 +21,7 @@ from .blueprint import blueprint_node_panel
 
 from .blueprint import blueprint_node_texture
 from .blueprint import blueprint_node_custom_shader
+from .blueprint import blueprint_node_face_mod
 from .blueprint import blueprint_node_group
 from .blueprint import blueprint_file_drop
 from .blueprint import blueprint_node_highlight
@@ -165,6 +166,7 @@ def _register_steps():
 
     yield blueprint_node_texture.register
     yield blueprint_node_custom_shader.register
+    yield blueprint_node_face_mod.register
     yield blueprint_file_drop.register
     yield blueprint_node_highlight.register
 
@@ -187,6 +189,7 @@ def unregister():
         texcomb.unregister,
         blueprint_node_highlight.unregister,
         blueprint_file_drop.unregister,
+        blueprint_node_face_mod.unregister,
         blueprint_node_group.unregister,
         blueprint_node_custom_shader.unregister,
         blueprint_node_texture.unregister,

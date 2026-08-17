@@ -765,6 +765,7 @@ def draw_node_add_menu(self, context):
     layout.operator("node.add_node", text="CustomShader", icon='NODE_COMPOSITING').type = "SSMTNode_CustomShader"
     layout.operator("node.add_node", text=iface_("分组"), icon='GROUP').type = "SSMTNode_Object_Group"
     layout.operator("node.add_node", text=iface_("生成Mod"), icon='EXPORT').type = "SSMTNode_Result_Output"
+    layout.operator("node.add_node", text="导出面部 Mod", icon='MOD_MASK').type = "SSMTNode_Face_Mod_Export"
     layout.operator("node.add_node", text=iface_("按键切换"), icon='GROUP').type = "SSMTNode_SwitchKey"
     layout.menu("SSMT_MT_NodeMenu_ModPanel", text=iface_("Mod面板"), icon='MENU_PANEL')
     layout.separator()
