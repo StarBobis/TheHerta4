@@ -231,6 +231,13 @@ class SubMeshModel:
         if "Blend" not in self.d3d11_game_type.OrderedCategoryNameList:
             return
 
+        # Missing groups may have been filled with empty groups.  A component
+        # whose vertices already sum to one (including a single full-weight
+        # group) needs no adjustment, and Normalize All can fail for locked
+        # groups even though the data is valid.
+        if ObjUtils.are_vertex_weights_normalized(temp_obj):
+            return
+
         if ObjUtils.is_all_vertex_groups_locked(temp_obj):
             return
 

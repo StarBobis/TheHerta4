@@ -390,6 +390,31 @@ class ObjUtils:
             return False
 
     @staticmethod
+    def are_vertex_weights_normalized(obj, epsilon=1e-5):
+        """Return whether every mesh vertex already has a unit weight sum.
+
+        Empty groups created to fill vertex-group index gaps do not contribute
+        to ``vertex.groups``.  Consequently a vertex assigned fully to one
+        group is already normalized and must not be passed through Blender's
+        Normalize All operator (which can fail when the groups are locked).
+        """
+        if obj is None or getattr(obj, "type", None) != 'MESH':
+            return False
+
+        vertices = getattr(getattr(obj, "data", None), "vertices", None)
+        if vertices is None:
+            return False
+
+        for vertex in vertices:
+            groups = getattr(vertex, "groups", ())
+            if not groups:
+                return False
+            weight_sum = sum(group.weight for group in groups)
+            if not math.isfinite(weight_sum) or abs(weight_sum - 1.0) > epsilon:
+                return False
+        return True
+
+    @staticmethod
     def copy_object(context, obj, name=None, collection=None):
         '''
         collection指的是复制后链接到哪个collection里
