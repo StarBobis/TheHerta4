@@ -846,7 +846,7 @@ class ExportWWMI:
             print("[TRACE] generate_unreal_vs_config_ini: DrawIB=" + draw_ib + " - Hash/SharedSlot 璐村浘 INI 鐢熸垚瀹屾垚")
             print("=" * 60)
 
-            config_ini_builder.save_to_file_not_reorder(os.path.join(GlobalConfig.path_generate_mod_folder(), GlobalConfig.get_workspace_name() + "_" + draw_ib + ".ini"))
+            config_ini_builder.save_to_file_not_reorder(os.path.join(GlobalConfig.path_generate_mod_folder(), GlobalConfig.get_generated_mod_name() + "_" + draw_ib + ".ini"))
             config_ini_builder.clear()
 
     def export(self):

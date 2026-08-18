@@ -9,6 +9,7 @@ class BlueprintExportHelper:
 
     # 运行时记录当前操作对应的蓝图树，避免按钮触发后丢失上下文
     runtime_blueprint_tree_name = ""
+    runtime_output_node = None
     _workspace_tree_sync_timer_registered = False
     _node_editor_tree_type_by_space = {}
 
@@ -350,6 +351,74 @@ class BlueprintExportHelper:
         
         return connected_groups
 
+    @staticmethod
+    def get_output_chains(tree):
+        """Return Result Output chains in upstream-to-downstream order.
+
+        A Result Output node may feed another Result Output node through its
+        output socket.  Every terminal output starts one chain; independent
+        output nodes therefore become independent chains.
+        """
+        output_nodes = [
+            node for node in getattr(tree, "nodes", [])
+            if getattr(node, "bl_idname", "") == 'SSMTNode_Result_Output'
+        ]
+        if not output_nodes:
+            return []
+
+        downstream = {node: [] for node in output_nodes}
+        upstream = {node: [] for node in output_nodes}
+        output_socket_name = "输出"
+        for node in output_nodes:
+            outputs = getattr(node, "outputs", None)
+            output_socket = outputs.get(output_socket_name) if hasattr(outputs, "get") else None
+            if output_socket is None and outputs:
+                output_socket = outputs[0]
+            if output_socket is None:
+                continue
+            for link in output_socket.links:
+                target = link.to_node
+                if getattr(target, "bl_idname", "") != 'SSMTNode_Result_Output':
+                    continue
+                downstream[node].append(target)
+                upstream[target].append(node)
+
+        if any(len(targets) > 1 for targets in downstream.values()):
+            raise ValueError("一个生成 Mod 输出不能同时连接多个输出节点")
+
+        terminals = [node for node in output_nodes if not downstream[node]]
+        if not terminals:
+            raise ValueError("生成 Mod 输出节点之间存在循环连接")
+
+        chains = []
+        visited = set()
+
+        def visit(node, chain, active):
+            if node in active:
+                raise ValueError("生成 Mod 输出节点之间存在循环连接")
+            active = active | {node}
+            parents = upstream[node]
+            if len(parents) > 1:
+                raise ValueError("一个生成 Mod 输出不能接收多个输出节点")
+            if parents:
+                visit(parents[0], chain, active)
+            if node not in visited:
+                chain.append(node)
+                visited.add(node)
+
+        for terminal in terminals:
+            chain = []
+            visit(terminal, chain, set())
+            if chain:
+                chains.append(chain)
+
+        # An output node with an invalid/non-output outgoing link is still a
+        # terminal from the INI chain's perspective and is covered above.
+        if len(visited) != len(output_nodes):
+            missing = [node.name for node in output_nodes if node not in visited]
+            raise ValueError("无法解析生成 Mod 输出链: " + ", ".join(missing))
+        return chains
+
 
     @staticmethod
     def get_current_shapekeyname_mkey_dict(context=None):
@@ -358,9 +427,11 @@ class BlueprintExportHelper:
         if not tree:
             return {}
 
-        output_node = None
+        output_node = BlueprintExportHelper.runtime_output_node
+        if output_node is not None and getattr(output_node, "id_data", None) is not tree:
+            output_node = None
         for node in tree.nodes:
-            if node.bl_idname == 'SSMTNode_Result_Output':
+            if output_node is None and node.bl_idname == 'SSMTNode_Result_Output':
                 output_node = node
                 break
         if not output_node or not getattr(output_node, "enable_shapekey", False):

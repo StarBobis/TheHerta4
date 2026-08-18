@@ -33,7 +33,7 @@ class BluePrintModel:
 
     _KEY_ALIAS_PATTERN = re.compile(r"^[A-Za-z0-9]+$")
     
-    def __init__(self, tree=None, context=None):
+    def __init__(self, tree=None, context=None, output_node=None):
         M_CustomShaderHelper.begin_export()
         # 全局按键名称和按键属性字典
         self.keyname_mkey_dict:dict[str,M_Key] = {} 
@@ -58,7 +58,9 @@ class BluePrintModel:
         self._switch_alias_state_counts = self._collect_switch_alias_state_counts(tree)
 
         print(tree)
-        output_node = BlueprintExportHelper.get_node_from_bl_idname(tree, SSMTNode_Result_Output.bl_idname)
+        output_node = output_node or BlueprintExportHelper.get_node_from_bl_idname(
+            tree, SSMTNode_Result_Output.bl_idname
+        )
         if not output_node:
             raise ValueError("当前蓝图缺少 Generate Mod 输出节点")
 
@@ -280,6 +282,18 @@ class BluePrintModel:
                 obj_model.custom_shader_node_list.extend(custom_shader_nodes)
                 
                 self.ordered_draw_obj_data_model_list.append(obj_model)
+
+        elif unknown_node.bl_idname == SSMTNode_Result_Output.bl_idname:
+            # Result Output nodes are pass-through nodes when chained.  The
+            # selected output is handled as the root by __init__; upstream
+            # output nodes are intentionally boundaries for that INI layer.
+            return
+
+        elif unknown_node.bl_idname == "SSMTNode_Face_Mod_Export":
+            # The face exporter owns a separate Face.ini export action.  Its
+            # object socket remains a pass-through so it can sit inline with a
+            # regular Generate Mod output without dropping the mesh flow.
+            self.parse_current_node(unknown_node, chain_key_list)
 
         elif unknown_node.bl_idname == SSMTNode_Texture.bl_idname:
             # Texture 节点：Hash 出口沿蓝图链路传递，因此也必须保留当前分支条件。

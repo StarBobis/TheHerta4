@@ -73,6 +73,8 @@ def _build_face_part(object_node) -> FaceModPart:
     if obj is None:
         raise FaceModExportError(f"物体节点 '{object_node.name}' 没有可用的 Blender 物体。")
 
+    # SSMT4 will eventually provide face-model classification metadata.  Use
+    # it here to validate or automatically select compatible face submeshes.
     submesh_name = object_node._get_effective_parse_name()
     if not submesh_name:
         raise FaceModExportError(f"物体 '{obj.name}' 没有关联 Submesh。")
@@ -149,12 +151,17 @@ class SSMTNode_Face_Mod_Export(SSMTNodeBase):
     open_folder: bpy.props.BoolProperty(name="导出后打开文件夹", default=True)  # type: ignore
 
     def init(self, context):
+        self.outputs.new("SSMTSocketObject", "输出")
         self.inputs.new("SSMTSocketObject", "面部组 1")
         self.width = 360
         self.use_custom_color = True
         self.color = (0.58, 0.32, 0.12)
 
     def update(self):
+        # Existing blend files predate the output socket.  Add it lazily when
+        # Blender updates the node so old blueprints become chainable too.
+        if len(self.outputs) == 0:
+            self.outputs.new("SSMTSocketObject", "输出")
         if self.inputs and self.inputs[-1].is_linked:
             self.inputs.new("SSMTSocketObject", f"面部组 {len(self.inputs) + 1}")
         if len(self.inputs) > 1 and not self.inputs[-1].is_linked and not self.inputs[-2].is_linked:

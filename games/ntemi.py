@@ -328,7 +328,7 @@ class ExportNTEMI:
 
         ini_filepath = os.path.join(
             GlobalConfig.path_generate_mod_folder(),
-            GlobalConfig.get_workspace_name() + ".ini",
+            GlobalConfig.get_generated_mod_name() + ".ini",
         )
         self._write_ini(ini_filepath, lines)
 

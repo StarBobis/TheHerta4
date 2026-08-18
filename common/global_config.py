@@ -69,11 +69,20 @@ class GlobalConfig:
     '''
     global_key_index: int = 0
     generated_mod_number: int = 0
+    # Temporary INI stem used when a blueprint contains chained output nodes.
+    # The generated Mod directory itself must continue to use the workspace name.
+    generated_mod_name_override: str = ""
 
     @classmethod
     def initialize_key_count(cls):
         cls.global_key_index = 0
         cls.generated_mod_number = 0
+        cls.generated_mod_name_override = ""
+
+    @classmethod
+    def get_generated_mod_name(cls):
+        """Return the current INI filename stem for game exporters."""
+        return cls.generated_mod_name_override or cls.get_workspace_name()
 
     @classmethod
     def read_from_main_json_ssmt4(cls) :

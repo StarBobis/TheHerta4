@@ -742,12 +742,20 @@ class SSMTNode_Result_Output(SSMTNodeBase):
     ) # type: ignore
     shapekey_items: bpy.props.CollectionProperty(type=SSMTShapeKeyListItem) # type: ignore
 
+    ini_filename: bpy.props.StringProperty(
+        name="子配置文件名",
+        description="串联输出时生成的子配置名；为避免 recursive 重复加载，会写成 .cfg",
+        default="",
+    )  # type: ignore
+
     def init(self, context):
+        self.outputs.new('SSMTSocketObject', iface_("输出"))
         self.inputs.new('SSMTSocketObject', iface_("组 1"))
         self.width = 400
 
     def draw_buttons(self, context, layout):
         layout.operator("ssmt.generate_mod_blueprint", text=iface_("生成Mod"), icon='EXPORT')
+        layout.prop(self, "ini_filename", text=iface_("子配置文件名"))
 
         from .blueprint_node_shapekey import draw_shapekey_settings
         draw_shapekey_settings(self, layout)
@@ -788,6 +796,8 @@ class SSMTNode_Result_Output(SSMTNodeBase):
         row.operator("ssmt.blueprint_nest_navigate", text=iface_("返回上一层级"), icon='BACK')
 
     def update(self):
+        if len(self.outputs) == 0:
+            self.outputs.new('SSMTSocketObject', iface_("输出"))
         if self.inputs and self.inputs[-1].is_linked:
             self.inputs.new('SSMTSocketObject', iface_("组 {count}").format(count=len(self.inputs) + 1))
         
