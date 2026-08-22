@@ -209,6 +209,7 @@ class Sword_ImportTexture_WM_OT_AutoDetectTextureFolder(Operator):
 class Sword_ImportTexture_WM_OT_ApplyImageToMaterial(Operator):
     bl_idname = "wm.apply_image_to_material"
     bl_label = "应用贴图到选中的物体"
+    bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
         scene = context.scene
@@ -298,6 +299,7 @@ class SwordImportAllReversed(bpy.types.Operator):
     bl_idname = "ssmt.import_all_reverse"
     bl_label = "一键导入逆向出来的全部模型"
     bl_description = "把上一次一键逆向出来的所有模型全部导入到Blender，然后你可以手动筛选并删除错误的数据类型，流程上更加方便。"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def _resolve_reverse_output_folder_path(self, context):
         # Reversed paths come from MMT settings only, no SSMT config needed.

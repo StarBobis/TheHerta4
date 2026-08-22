@@ -85,7 +85,7 @@ class SSMT_OT_EditCustomShaderBody(bpy.types.Operator):
     bl_idname = 'ssmt.edit_custom_shader_body'
     bl_label = '编辑 CustomShader Body'
     bl_description = '在独立 Text Editor 中编辑完整的 CustomShader INI 内容'
-    bl_options = {'INTERNAL'}
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     tree_name: bpy.props.StringProperty(options={'HIDDEN'})  # type: ignore
     node_name: bpy.props.StringProperty(options={'HIDDEN'})  # type: ignore

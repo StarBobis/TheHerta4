@@ -163,6 +163,7 @@ class SSMT_ImportTexture_WM_OT_AutoDetectTextureFolder(Operator):
 class SSMT_ImportTexture_WM_OT_ApplyImageToMaterial(Operator):
     bl_idname = "ssmt.apply_image_to_material"
     bl_label = "应用贴图到选中的物体"
+    bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
         scene = context.scene

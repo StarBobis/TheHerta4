@@ -103,6 +103,7 @@ class THEHERTA3_OT_OpenPersistentBlueprint(bpy.types.Operator):
     bl_idname = "theherta3.open_persistent_blueprint"
     bl_label = "打开蓝图界面"
     bl_description = "打开一个独立的蓝图窗口，用于配置Mod逻辑"
+    bl_options = {'REGISTER', 'UNDO'}
 
     blueprint_name: bpy.props.StringProperty(
         name="Blueprint Name",
@@ -188,7 +189,7 @@ class THEHERTA3_OT_DeletePersistentBlueprint(bpy.types.Operator):
     bl_idname = "theherta3.delete_persistent_blueprint"
     bl_label = "删除蓝图"
     bl_description = "删除当前选中的蓝图"
-    bl_options = {'REGISTER', 'INTERNAL'}
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     blueprint_name: bpy.props.StringProperty(
         name="Blueprint Name",
@@ -261,7 +262,7 @@ class THEHERTA3_OT_RenamePersistentBlueprint(bpy.types.Operator):
     bl_idname = "theherta3.rename_persistent_blueprint"
     bl_label = "重命名蓝图"
     bl_description = "重命名当前选中的蓝图"
-    bl_options = {'REGISTER', 'INTERNAL'}
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     blueprint_name: bpy.props.StringProperty(
         name="Blueprint Name",

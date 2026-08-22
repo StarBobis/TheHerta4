@@ -57,6 +57,7 @@ class ModelSplitByLoosePart(bpy.types.Operator):
     bl_idname = "panel_model.split_by_loose_part"
     bl_label = "根据UV松散块儿分割模型"
     bl_description = "功能与Edit界面的Split => Split by Loose Parts相似，但是分割模型为松散块儿并放入新集合。"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         
@@ -76,6 +77,7 @@ class ModelSplitByVertexGroup(bpy.types.Operator):
     bl_idname = "panel_model.split_by_vertex_group"
     bl_label = "根据共享与孤立顶点组分割模型"
     bl_description = "把模型根据共享的顶点组分开，方便快速分离身体上的小物件，方便后续刷权重不受小物件影响。"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         if len(bpy.context.selected_objects) == 0:
@@ -161,6 +163,7 @@ class ModelDeleteLoosePoint(bpy.types.Operator):
     bl_idname = "panel_model.delete_loose_point"
     bl_label = "删除模型中的松散点"
     bl_description = "删除模型中的松散点，避免影响后续的模型处理。"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         
@@ -177,6 +180,7 @@ class ModelClearCustomSplitNormals(bpy.types.Operator):
     bl_idname = "panel_model.clear_custom_split_normals"
     bl_label = "清除自定义拆分法向"
     bl_description = "WWMI 逆向得到的模型，有时顶点法线会歪，用这个处理一下就行。"
+    bl_options = {'REGISTER', 'UNDO'}
     def execute(self, context):
         sel = context.selected_objects
         if not sel:
@@ -218,6 +222,7 @@ class ModelRenameVertexGroupNameWithTheirSuffix(bpy.types.Operator):
     bl_idname = "panel_model.rename_vertex_group_name_with_their_suffix"
     bl_label = "用模型名称作为前缀重命名顶点组"
     bl_description = "用模型名称作为前缀重命名顶点组，方便后续合并到一个物体后同名称的顶点组不会合在一起冲突，便于后续一键绑定骨骼。"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         
@@ -245,6 +250,7 @@ class RemoveAllVertexGroupOperator(bpy.types.Operator):
     bl_idname = "object.remove_all_vertex_group"
     bl_label = "移除所有顶点组"
     bl_description = "移除当前选中obj的所有顶点组"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         if len(bpy.context.selected_objects) == 0:
@@ -262,6 +268,7 @@ class RemoveUnusedVertexGroupOperator(bpy.types.Operator):
     bl_idname = "object.remove_unused_vertex_group"
     bl_label = "移除未使用的空顶点组"
     bl_description = "移除当前选中obj的所有空顶点组，也就是移除未使用的顶点组"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         if len(bpy.context.selected_objects) == 0:
@@ -279,6 +286,7 @@ class MergeVertexGroupsWithSameNumber(bpy.types.Operator):
     bl_idname = "object.merge_vertex_group_with_same_number"
     bl_label = "合并具有相同数字前缀名称的顶点组"
     bl_description = "把当前选中obj的所有数字前缀名称相同的顶点组进行合并"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         if len(bpy.context.selected_objects) == 0:
@@ -292,6 +300,7 @@ class FillVertexGroupGaps(bpy.types.Operator):
     bl_idname = "object.fill_vertex_group_gaps"
     bl_label = "填充数字顶点组的间隙"
     bl_description = "把当前选中obj的所有数字顶点组的间隙用数字命名的空顶点组填补上，比如有顶点组1,2,5,8则填补后得到1,2,3,4,5,6,7,8"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         if len(bpy.context.selected_objects) == 0:
@@ -306,6 +315,7 @@ class AddBoneFromVertexGroupV2(bpy.types.Operator):
     bl_idname = "object.add_bone_from_vertex_group_v2"
     bl_label = "根据顶点组生成基础骨骼"
     bl_description = "把当前选中的obj的每个顶点组都生成一个默认位置的骨骼，方便接下来手动调整骨骼位置和父级关系来绑骨，虹汐哥改进版本"
+    bl_options = {'REGISTER', 'UNDO'}
     def execute(self, context):
         if len(bpy.context.selected_objects) == 0:
             self.report({'ERROR'}, "没有选中的对象！")
@@ -319,6 +329,7 @@ class RemoveNotNumberVertexGroup(bpy.types.Operator):
     bl_idname = "object.remove_not_number_vertex_group"
     bl_label = "移除非数字名称的顶点组"
     bl_description = "把当前选中的obj的所有不是纯数字命名的顶点组都移除"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         if len(bpy.context.selected_objects) == 0:
@@ -336,6 +347,7 @@ class SplitMeshByCommonVertexGroup(bpy.types.Operator):
     bl_idname = "object.split_mesh_by_common_vertex_group"
     bl_label = "根据顶点组将模型打碎为松散块儿"
     bl_description = "把当前选中的obj按顶点组进行分割，适用于部分精细刷权重并重新组合模型的场景"
+    bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
         for obj in bpy.context.selected_objects:
@@ -349,6 +361,7 @@ class SplitMeshByEachVertexGroup(bpy.types.Operator):
     bl_idname = "object.split_mesh_by_each_vertex_group"
     bl_label = "按顶点组分割模型"
     bl_description = "把当前选中的obj按每个顶点组分割为独立网格，保留所有属性（UV、权重、颜色、法线、形态键等），结果放入'{obj名}_Split'集合"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         if len(bpy.context.selected_objects) == 0:
@@ -371,6 +384,7 @@ class SplitMeshByEachVertexGroupCluster(bpy.types.Operator):
     bl_idname = "object.split_mesh_by_each_vertex_group_cluster"
     bl_label = "根据松散块儿分割并聚类"
     bl_description = "按松散块儿分割后，将 VG 集合近似（Jaccard 相似度）且空间邻接的松散块儿合并为一个部位，结果放入'{obj名}_SplitCluster'集合"
+    bl_options = {'REGISTER', 'UNDO'}
 
     vg_similarity_threshold: bpy.props.FloatProperty(
         name="VG 相似度阈值",
@@ -414,6 +428,7 @@ class SplitMeshByEachVertexGroupCluster(bpy.types.Operator):
 
 class MMTResetRotation(bpy.types.Operator):
     bl_idname = "object.mmt_reset_rotation"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "重置模型x,y,z的旋转角度为0"
     bl_description = "把当前选中的obj的x,y,z的旋转角度全部归0"
     
@@ -426,6 +441,7 @@ class MMTResetRotation(bpy.types.Operator):
 
 class SmoothNormalSaveToUV(bpy.types.Operator):
     bl_idname = "object.smooth_normal_save_to_uv"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "平滑法线存UV(近似)"
     bl_description = "平滑法线存UV算法，可用于修复ZZZ,WWMI的某些UV(只是近似实现60%的效果)" 
 
@@ -445,6 +461,7 @@ bpy.utils.register_class(PropertyCollectionModifierItem)
 
 class WWMI_ApplyModifierForObjectWithShapeKeysOperator(bpy.types.Operator):
     bl_idname = "wwmi_tools.apply_modifier_for_object_with_shape_keys"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "在有形态键的模型上应用修改器"
     bl_description = "在带有形态键的模型上应用选中的修改器，并将其从堆栈中移除，用于解决“带形态键的网格无法应用修改器”的问题。"
  
@@ -505,6 +522,7 @@ class WWMI_ApplyModifierForObjectWithShapeKeysOperator(bpy.types.Operator):
 
 class RecalculateTANGENTWithVectorNormalizedNormal(bpy.types.Operator):
     bl_idname = "object.recalculate_tangent_arithmetic_average_normal"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "使用向量相加归一化算法重计算TANGENT"
     bl_description = "近似修复轮廓线算法，可以达到99%的轮廓线相似度，适用于GI,HSR,ZZZ,HI3 2.0之前的老角色" 
     def execute(self, context):
@@ -520,6 +538,7 @@ class RecalculateTANGENTWithVectorNormalizedNormal(bpy.types.Operator):
 
 class RecalculateCOLORWithVectorNormalizedNormal(bpy.types.Operator):
     bl_idname = "object.recalculate_color_arithmetic_average_normal"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "使用算术平均归一化算法重计算COLOR"
     bl_description = "近似修复轮廓线算法，可以达到99%的轮廓线相似度，仅适用于HI3 2.0新角色" 
 
@@ -537,6 +556,7 @@ class RecalculateCOLORWithVectorNormalizedNormal(bpy.types.Operator):
 
 class RenameAmatureFromGame(bpy.types.Operator):
     bl_idname = "object.rename_amature_from_game"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "重命名选中Amature的骨骼名称(GI)(测试)"
     bl_description = "用于把游戏里解包出来的骨骼重命名，方便我们直接一键绑定到提取出的Mod模型上，感谢 Leotorrez。"
     def execute(self, context):
@@ -583,6 +603,7 @@ class RenameAmatureFromGame(bpy.types.Operator):
 
 class ModelResetLocation(bpy.types.Operator):
     bl_idname = "herta.model_reset_location"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "重置模型在x,y,z轴上的位置为0"
     bl_description = "把当前选中的obj的x,y,z轴上的位置全部重置为0，使模型回到坐标原点"
     
@@ -595,6 +616,7 @@ class ModelResetLocation(bpy.types.Operator):
     
 class ModelSortVertexGroupByName(bpy.types.Operator):
     bl_idname = "object.sort_vertex_group_by_name"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "根据顶点组名称对顶点组进行排序"
     bl_description = "和Blender顶点组权重那里自带的Sort=>By Name功能一样，放在这里方便快速调用"
     def execute(self, context):
@@ -610,6 +632,7 @@ class ModelSortVertexGroupByName(bpy.types.Operator):
     
 class ModelVertexGroupRenameByLocation(bpy.types.Operator):
     bl_idname = "herta.vertex_group_rename_by_location"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "将目标obj的顶点组按位置对应关系改名"
     bl_description = "先选中一个源obj，再选中一个目标obj，再点击此按钮，会根据顶点组对应位置把目标obj的顶点组改名为源obj的顶点组名称，目标obj的顶点组中，和源obj顶点组位置相近的顶点组将被改名为源obj对应位置的顶点组的名称，未能识别的顶点组将被命名为unknown"
 
