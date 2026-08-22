@@ -754,7 +754,9 @@ class SSMTNode_Result_Output(SSMTNodeBase):
         self.width = 400
 
     def draw_buttons(self, context, layout):
-        layout.operator("ssmt.generate_mod_blueprint", text=iface_("生成Mod"), icon='EXPORT')
+        operator = layout.operator("ssmt.generate_mod_blueprint", text=iface_("生成Mod"), icon='EXPORT')
+        operator.node_name = self.name
+        operator.tree_name = self.id_data.name if self.id_data else ""
         layout.prop(self, "ini_filename", text=iface_("子配置文件名"))
 
         from .blueprint_node_shapekey import draw_shapekey_settings

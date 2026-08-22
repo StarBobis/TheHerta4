@@ -385,19 +385,41 @@ def _link_group_to_output(tree, group_node, output_node):
     tree.links.new(group_node.outputs[0], output_node.inputs[-1])
 
 
+def _get_marked_diffuse_hash(json_path: str) -> str:
+    """Return the first explicitly marked DiffuseMap hash for a Face SubMesh."""
+    try:
+        data = JsonUtils.LoadFromFile(json_path)
+    except Exception:
+        return ""
+    for mark in _extract_texture_marks(data):
+        if not isinstance(mark, dict):
+            continue
+        if str(mark.get("MarkName", "") or "").strip().casefold() != "diffusemap":
+            continue
+        hash_value = str(mark.get("MarkHash", "") or "").strip()
+        if hash_value:
+            return hash_value
+    return ""
+
+
 def _create_face_mod_export_node(tree, oldfoldername_node_dict, oldfoldername_jsonpath_dict, location):
     """Create and wire the face exporter when at least one imported SubMesh is marked Face."""
     face_nodes = []
+    diffuse_hash = ""
     for old_folder_name, object_node in oldfoldername_node_dict.items():
         json_path = oldfoldername_jsonpath_dict.get(old_folder_name, "")
         if json_path and _read_submesh_role(json_path) == "Face":
             face_nodes.append(object_node)
+            if not diffuse_hash:
+                diffuse_hash = _get_marked_diffuse_hash(json_path)
     if not face_nodes:
         return None
 
     export_node = tree.nodes.new('SSMTNode_Face_Mod_Export')
     export_node.location = location
     export_node.label = "导出面部 Mod"
+    export_node.diffuse_hash = diffuse_hash
+    export_node.output_folder = os.path.join(GlobalConfig.path_generate_mod_folder(), "Face")
     for object_node in face_nodes:
         if export_node.inputs[-1].is_linked:
             export_node.inputs.new('SSMTSocketObject', f"面部组 {len(export_node.inputs) + 1}")
@@ -835,12 +857,13 @@ def ImprotFromWorkSpaceFull(self, context):
         output_node.location = (max_node_right + 1040.0, -200.0)
         output_node.label = "Generate Mod"
 
-        _create_face_mod_export_node(
+        face_export_node = _create_face_mod_export_node(
             tree, oldfoldername_node_dict, oldfoldername_jsonpath_dict,
             (max_node_right + 1040.0, -760.0),
         )
         
         # 两个并列的分组节点分别直接连到 Output
+        _link_group_to_output(tree, face_export_node, output_node)
         _link_group_to_output(tree, group_node, output_node)
         _link_group_to_output(tree, hash_group_node, output_node)
 
@@ -1150,11 +1173,12 @@ def _generate_blueprint_for_imported_objects(context, foldername_imported_obj_di
         output_node.location = (max_node_right + 1040.0, -200.0)
         output_node.label = "Generate Mod"
 
-        _create_face_mod_export_node(
+        face_export_node = _create_face_mod_export_node(
             tree, oldfoldername_node_dict, oldfoldername_jsonpath_dict or {},
             (max_node_right + 1040.0, -760.0),
         )
 
+        _link_group_to_output(tree, face_export_node, output_node)
         _link_group_to_output(tree, group_node, output_node)
         _link_group_to_output(tree, hash_group_node, output_node)
 

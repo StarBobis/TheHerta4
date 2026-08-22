@@ -8,8 +8,7 @@ import numpy
 from bpy_extras.io_utils import ImportHelper
 
 from ..common.global_config import GlobalConfig, LogicName
-from ..utils.format_utils import Fatal
-from ..utils.gimi_face_mod import FACE_VERTEX_STRIDE, FaceModPart, build_key_bytes, gimi_face_local_to_game_positions, slice_face_base_buffer, write_face_mod
+from ..utils.gimi_face_mod import FACE_VERTEX_STRIDE, FaceModPart, build_key_bytes, gimi_face_local_to_game_positions, parse_face_index_hashes, slice_face_base_buffer, write_face_mod
 from ..workspace.ssmt_workspace import SSMTWorkSpace
 from ..workspace.submesh_json import SubmeshJson
 from .blueprint_export_helper import BlueprintExportHelper
@@ -21,7 +20,7 @@ class FaceModExportError(ValueError):
     pass
 
 
-def _collect_object_nodes(node, visited=None):
+def _collect_object_nodes(node, visited=None, *, is_root=True):
     """Resolve Object Info nodes upstream of a face-export node in socket order."""
     visited = visited if visited is not None else set()
     if node is None or node in visited:
@@ -31,9 +30,17 @@ def _collect_object_nodes(node, visited=None):
     if getattr(node, "bl_idname", "") == "SSMTNode_Object_Info":
         return [node]
 
+    # Output nodes are composition boundaries.  They can be connected here so
+    # their INI is included, but their object graph must not silently become a
+    # part of this face export as well.
+    if not is_root and getattr(node, "bl_idname", "") in {
+        "SSMTNode_Result_Output", "SSMTNode_Face_Mod_Export",
+    }:
+        return []
+
     result = []
     for source_node in BlueprintExportHelper.get_connected_nodes(node):
-        result.extend(_collect_object_nodes(source_node, visited))
+        result.extend(_collect_object_nodes(source_node, visited, is_root=False))
     return result
 
 
@@ -68,6 +75,21 @@ def _read_mesh_positions(obj) -> numpy.ndarray:
     return gimi_face_local_to_game_positions(positions.reshape(-1, 3))
 
 
+def _get_workspace_face_index_hashes(submesh_json: SubmeshJson, source_path: str) -> tuple[str, ...]:
+    """Resolve Face IB identity exclusively from workspace metadata/path."""
+    metadata = submesh_json.JsonDict
+    for key in ("FaceIndexBufferHash", "IndexBufferHash", "IBHash", "DrawIB"):
+        value = metadata.get(key)
+        hashes = parse_face_index_hashes(value if isinstance(value, (str, list, tuple)) else None)
+        if hashes:
+            return hashes
+
+    # SSMT's canonical SubMesh folder is ``{DrawIB}-{indexCount}-{firstIndex}``.
+    # It is workspace-derived metadata, not a game-specific fallback constant.
+    submesh_folder = os.path.basename(os.path.dirname(os.path.dirname(source_path)))
+    return parse_face_index_hashes(submesh_folder.split("-", 1)[0])
+
+
 def _build_face_part(object_node) -> FaceModPart:
     obj = ObjectPersistentIdManager.resolve_node_target(object_node, allow_name_fallback=True)
     if obj is None:
@@ -81,10 +103,10 @@ def _build_face_part(object_node) -> FaceModPart:
 
     source_path = SSMTWorkSpace.check_and_get_submesh_json_path(submesh_name)
     submesh_json = SubmeshJson(source_path)
+    index_hashes = _get_workspace_face_index_hashes(submesh_json, source_path)
+    if not index_hashes:
+        raise FaceModExportError(f"Submesh '{submesh_name}' 缺少工作空间提供的 Face IndexBuffer hash。")
     position_buffer = _get_face_position_buffer(submesh_json)
-    vertex_hash = str(submesh_json.CategoryHash.get("Position", "") or "").strip()
-    if not vertex_hash:
-        raise FaceModExportError(f"Submesh '{submesh_name}' 缺少 Position category hash。")
     if not os.path.isfile(position_buffer.FilePath):
         raise FaceModExportError(f"找不到原始 Position 缓冲: {position_buffer.FilePath}")
 
@@ -102,9 +124,9 @@ def _build_face_part(object_node) -> FaceModPart:
 
     return FaceModPart(
         name=str(getattr(object_node, "submesh_name", "") or obj.name),
-        vertex_hash=vertex_hash,
         base_bytes=base_bytes,
         key_bytes=key_bytes,
+        index_hashes=index_hashes,
     )
 
 
@@ -126,10 +148,12 @@ def export_face_mod_from_node(node) -> tuple[str, int]:
         parts.append(_build_face_part(object_node))
 
     output_folder = str(getattr(node, "output_folder", "") or "").strip()
-    if not output_folder:
-        output_folder = os.path.join(GlobalConfig.path_generate_mod_folder(), "FaceMod")
-    result_path = write_face_mod(output_folder, parts, diffuse_hash=node.diffuse_hash)
-    return result_path, len(parts)
+    if not getattr(node, "use_specific_output_folder", False) or not output_folder:
+        output_folder = os.path.join(GlobalConfig.path_generate_mod_folder(), "Face")
+    write_face_mod(output_folder, parts, diffuse_hash=node.diffuse_hash)
+    # ``write_face_mod`` returns the directory, while the Output composition
+    # layer needs the actual configuration file to build its [Include].
+    return os.path.join(output_folder, "Face.ini"), len(parts)
 
 
 class SSMTNode_Face_Mod_Export(SSMTNodeBase):
@@ -139,9 +163,14 @@ class SSMTNode_Face_Mod_Export(SSMTNodeBase):
 
     output_folder: bpy.props.StringProperty(
         name="输出文件夹",
-        description="留空时输出到常规 Mod 目录下的 FaceMod 文件夹",
+        description="留空时输出到常规 Mod 目录下的 Face 文件夹",
         default="",
         subtype="DIR_PATH",
+    )  # type: ignore
+    use_specific_output_folder: bpy.props.BoolProperty(
+        name="输出到指定文件夹",
+        description="开启后将面部 Mod 输出到此节点指定的文件夹；关闭时输出到默认 Mod 目录的 Face 子目录",
+        default=False,
     )  # type: ignore
     diffuse_hash: bpy.props.StringProperty(
         name="Diffuse Hash",
@@ -174,11 +203,13 @@ class SSMTNode_Face_Mod_Export(SSMTNodeBase):
         operator.tree_name = self.id_data.name if self.id_data else ""
 
         layout.prop(self, "diffuse_hash", text="Diffuse Hash")
-        folder_row = layout.row(align=True)
-        folder_row.prop(self, "output_folder", text="输出")
-        folder_operator = folder_row.operator("ssmt.select_face_mod_export_folder", text="", icon="FILE_FOLDER")
-        folder_operator.node_name = self.name
-        folder_operator.tree_name = self.id_data.name if self.id_data else ""
+        layout.prop(self, "use_specific_output_folder")
+        if self.use_specific_output_folder:
+            folder_row = layout.row(align=True)
+            folder_row.prop(self, "output_folder", text="输出")
+            folder_operator = folder_row.operator("ssmt.select_face_mod_export_folder", text="", icon="FILE_FOLDER")
+            folder_operator.node_name = self.name
+            folder_operator.tree_name = self.id_data.name if self.id_data else ""
         layout.prop(self, "open_folder")
 
 
@@ -198,19 +229,10 @@ class SSMT_OT_ExportFaceMod(bpy.types.Operator):
             self.report({"ERROR"}, "未找到面部 Mod 导出节点。")
             return {"CANCELLED"}
 
-        try:
-            output_folder, part_count = export_face_mod_from_node(node)
-        except (FaceModExportError, Fatal, OSError, ValueError) as error:
-            self.report({"ERROR"}, str(error))
-            return {"CANCELLED"}
-
-        self.report({"INFO"}, f"已导出 {part_count} 个面部部件: {output_folder}")
-        if node.open_folder:
-            try:
-                os.startfile(output_folder)
-            except OSError:
-                pass
-        return {"FINISHED"}
+        # Keep this node's button on the same recursive Output path as the
+        # regular Generate Mod node.  Import locally to avoid a module cycle.
+        from ..ui.ui_func_export import generate_mod_from_output_node
+        return generate_mod_from_output_node(tree, context, node, self.report)
 
 
 class SSMT_OT_SelectFaceModExportFolder(bpy.types.Operator, ImportHelper):

@@ -290,10 +290,11 @@ class BluePrintModel:
             return
 
         elif unknown_node.bl_idname == "SSMTNode_Face_Mod_Export":
-            # The face exporter owns a separate Face.ini export action.  Its
-            # object socket remains a pass-through so it can sit inline with a
-            # regular Generate Mod output without dropping the mesh flow.
-            self.parse_current_node(unknown_node, chain_key_list)
+            # Face Output is an INI composition boundary, just like the
+            # regular Result Output.  Its generated Face.ini is linked through
+            # [Include]; parsing its mesh inputs here would duplicate them in
+            # the regular output layer.
+            return
 
         elif unknown_node.bl_idname == SSMTNode_Texture.bl_idname:
             # Texture 节点：Hash 出口沿蓝图链路传递，因此也必须保留当前分支条件。

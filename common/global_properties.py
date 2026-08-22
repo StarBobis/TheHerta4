@@ -39,6 +39,16 @@ def _get_workspace_enum_items(self, context):
         return [("", "当前没有工作空间", "当前游戏配置下未找到可用工作空间")]
 
 
+def _disable_high_fidelity_when_normal_enabled(self, _context):
+    if self.use_normal_map and self.gimi_high_fidelity_rendering:
+        self.gimi_high_fidelity_rendering = False
+
+
+def _disable_normal_when_high_fidelity_enabled(self, _context):
+    if self.gimi_high_fidelity_rendering and self.use_normal_map:
+        self.use_normal_map = False
+
+
 class GlobalProperties(bpy.types.PropertyGroup):
     selected_blueprint_name: bpy.props.EnumProperty(
         name="当前蓝图",
@@ -129,12 +139,14 @@ class GlobalProperties(bpy.types.PropertyGroup):
         name="自动上贴图时使用法线贴图",
         description="启用后在导入模型时自动附加法线贴图节点, 在材质预览模式下得到略微更好的视觉效果",
         default=False,
+        update=_disable_high_fidelity_when_normal_enabled,
     ) # type: ignore
 
     gimi_high_fidelity_rendering: bpy.props.BoolProperty(
         name="原神高拟真渲染",
         description="仅 GIMI / GenshinImpact / 原神工作空间可用。启用后导入角色会使用 LightMap、Body Ramp、MatCap 与边缘光节点组构建预览材质",
         default=False,
+        update=_disable_normal_when_high_fidelity_enabled,
     ) # type: ignore
 
     align_face_on_import: bpy.props.BoolProperty(

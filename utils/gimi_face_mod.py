@@ -37,12 +37,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
 @dataclass(frozen=True)
 class FaceModPart:
-    """One GIMI face draw and its two position-reference buffers."""
+    """One face payload, triggered by stable index-buffer hashes."""
 
     name: str
-    vertex_hash: str
     base_bytes: bytes
     key_bytes: bytes
+    index_hashes: tuple[str, ...]
 
     @property
     def vertex_count(self) -> int:
@@ -129,6 +129,20 @@ def _unique_part_names(parts: Iterable[FaceModPart]) -> list[tuple[FaceModPart, 
     return result
 
 
+def parse_face_index_hashes(value: str | Iterable[str] | None) -> tuple[str, ...]:
+    """Normalize user-supplied stable Face IB hashes, preserving their order."""
+    raw_values = value.split(",") if isinstance(value, str) else (value or ())
+    result = []
+    seen = set()
+    for raw in raw_values:
+        hash_value = str(raw or "").strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{8}", hash_value) or hash_value in seen:
+            continue
+        seen.add(hash_value)
+        result.append(hash_value)
+    return tuple(result)
+
+
 def build_face_ini(parts: Iterable[FaceModPart], diffuse_hash: str = "") -> str:
     """Build the complete 3Dmigoto configuration for ``parts``."""
     named_parts = _unique_part_names(parts)
@@ -136,8 +150,8 @@ def build_face_ini(parts: Iterable[FaceModPart], diffuse_hash: str = "") -> str:
         raise ValueError("At least one face part is required.")
 
     for part, _ in named_parts:
-        if not part.vertex_hash:
-            raise ValueError(f"Face part '{part.name}' has no Position vertex-buffer hash.")
+        if not parse_face_index_hashes(part.index_hashes):
+            raise ValueError(f"Face part '{part.name}' has no valid Face index-buffer hash.")
         if len(part.base_bytes) != len(part.key_bytes) or len(part.base_bytes) % FACE_VERTEX_STRIDE:
             raise ValueError(f"Face part '{part.name}' has incompatible base/key buffers.")
 
@@ -158,27 +172,30 @@ def build_face_ini(parts: Iterable[FaceModPart], diffuse_hash: str = "") -> str:
             f"hash = {gate_hash}",
             "match_priority = 0",
             f"{gate_variable} = 1",
-            f"post {gate_variable} = 0",
             "",
         ])
 
     multiple_parts = len(named_parts) > 1
     for part, part_name in named_parts:
         relative_prefix = part_name + "/" if multiple_parts else ""
-        lines.extend([
-            f"[TextureOverrideSSMTFace{part_name}]",
-            f"hash = {part.vertex_hash}",
-        ])
-        if gate_hash:
-            lines.extend([f"if {gate_variable}", f"  run = CommandListSSMTFace{part_name}", "endif"])
-        else:
-            lines.append(f"run = CommandListSSMTFace{part_name}")
+        # Face vb0 is CPU-generated and its hash changes between scenes.  The
+        # index buffer identifies the draw reliably; copy its *current* vb0.
+        for index_hash in parse_face_index_hashes(part.index_hashes):
+            lines.extend([
+                f"[TextureOverrideSSMTFace{part_name}_{index_hash}]",
+                f"hash = {index_hash}",
+            ])
+            if gate_hash:
+                lines.extend([f"if {gate_variable}", f"  run = CommandListSSMTFace{part_name}", "endif"])
+            else:
+                lines.append(f"run = CommandListSSMTFace{part_name}")
+            lines.append("")
         lines.extend([
             "",
             f"[CommandListSSMTFace{part_name}]",
-            f"ResourceSSMTFace{part_name}Dif = copy this",
+            f"ResourceSSMTFace{part_name}Dif = copy vb0",
             f"run = CustomShaderSSMTFace{part_name}",
-            f"this = ResourceSSMTFace{part_name}Dif",
+            f"vb0 = ResourceSSMTFace{part_name}Dif",
             "",
             f"[ResourceSSMTFace{part_name}Dif]",
             "",

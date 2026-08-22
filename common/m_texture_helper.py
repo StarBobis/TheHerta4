@@ -3,6 +3,7 @@ Texture 节点相关的导出辅助函数。
 所有贴图 INI 段落与文件复制均从蓝图 SSMTNode_Texture 节点驱动。
 '''
 import os
+import stat
 import hashlib
 import shutil
 import struct
@@ -165,7 +166,27 @@ class M_TextureHelper:
                 b'BC5S': 'BC5_SNORM',
             }
             if fourcc != b'DX10':
-                return legacy_format_map.get(fourcc, '')
+                compressed_format = legacy_format_map.get(fourcc)
+                if compressed_format:
+                    return compressed_format
+
+                # A number of SSMT workspace DDS files use the original DDS
+                # RGB header rather than the DX10 extension.  They are still
+                # perfectly valid uncompressed RGBA textures.  Without this
+                # branch the caller sees an unknown source format and invokes
+                # texconv to convert R8G8B8A8_UNORM into itself.
+                pf_flags, _fourcc, rgb_bit_count, r_mask, g_mask, b_mask, a_mask = struct.unpack_from(
+                    '<7I', data, 80
+                )
+                if (
+                    (pf_flags & 0x40)  # DDPF_RGB
+                    and rgb_bit_count == 32
+                    and (r_mask, g_mask, b_mask, a_mask) == (
+                        0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000,
+                    )
+                ):
+                    return 'R8G8B8A8_UNORM'
+                return ''
             dxgi_format = struct.unpack_from('<I', data, 128)[0]
             format_map = {
                 28: 'R8G8B8A8_UNORM',
@@ -230,6 +251,12 @@ class M_TextureHelper:
                     raise RuntimeError(
                         f"转换结果格式不正确，期望 {target_format}，实际 {actual_format or '无法识别'}"
                     )
+                # A previous export may have left a read-only DDS (for
+                # example after unpacking an archive).  Windows refuses to
+                # replace it even though texconv produced a valid temporary
+                # file.  Clear only the file's read-only bit before replacing.
+                if os.path.isfile(target_path):
+                    os.chmod(target_path, stat.S_IWRITE | stat.S_IREAD)
                 os.replace(converted_path, target_path)
             return True
         except Exception as e:
