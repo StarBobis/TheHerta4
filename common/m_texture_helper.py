@@ -145,7 +145,14 @@ class M_TextureHelper:
 
     @classmethod
     def detect_dds_format(cls, dds_path: str) -> str:
-        """从 DDS 文件头解析 DXGI format，解析失败返回空字符串。"""
+        """Return a stable DDS source-format identity.
+
+        Known values use texconv-compatible DXGI names.  Valid but uncommon
+        DDS layouts deliberately return a stable ``DXGI_FORMAT_<n>`` or
+        ``DDS_LEGACY_*`` identity instead of an empty string: an imported
+        Texture node can then retain and copy the exact source file even when
+        this add-on does not have a conversion name for that layout.
+        """
         try:
             with open(dds_path, 'rb') as f:
                 data = f.read(148)
@@ -186,7 +193,14 @@ class M_TextureHelper:
                     )
                 ):
                     return 'R8G8B8A8_UNORM'
-                return ''
+                if (pf_flags & 0x40) and rgb_bit_count:
+                    return (
+                        f"DDS_LEGACY_RGB{rgb_bit_count}_"
+                        f"{r_mask:08X}_{g_mask:08X}_{b_mask:08X}_{a_mask:08X}"
+                    )
+                if fourcc != b'\0\0\0\0':
+                    return f"DDS_LEGACY_FOURCC_{fourcc.hex().upper()}"
+                return 'DDS_LEGACY_UNKNOWN'
             dxgi_format = struct.unpack_from('<I', data, 128)[0]
             format_map = {
                 28: 'R8G8B8A8_UNORM',
@@ -204,7 +218,7 @@ class M_TextureHelper:
                 77: 'BC3_UNORM',
                 78: 'BC3_UNORM_SRGB',
             }
-            return format_map.get(dxgi_format, '')
+            return format_map.get(dxgi_format, f'DXGI_FORMAT_{dxgi_format}')
         except Exception as e:
             print(f"[M_TextureHelper] 解析 DDS 格式失败: {dds_path}, {e}")
             return ''
