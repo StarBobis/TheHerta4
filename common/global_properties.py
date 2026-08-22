@@ -137,6 +137,12 @@ class GlobalProperties(bpy.types.PropertyGroup):
         default=False,
     ) # type: ignore
 
+    align_face_on_import: bpy.props.BoolProperty(
+        name="矫正面部",
+        description="导入时根据 SubMeshRole 的 Face/Neck 标记旋转并平移面部物体；只修改物体变换，不修改顶点",
+        default=False,
+    ) # type: ignore
+
     gimi_body_outline_enabled: bpy.props.BoolProperty(
         name="GIMI Body 黑色描边",
         description="高拟真 GIMI Body 导入时创建反向外壳黑色描边",
@@ -262,6 +268,10 @@ class GlobalProperties(bpy.types.PropertyGroup):
     @classmethod
     def gimi_high_fidelity_rendering(cls):
         return cls._instance().gimi_high_fidelity_rendering
+
+    @classmethod
+    def align_face_on_import(cls):
+        return cls._instance().align_face_on_import
 
     @classmethod
     def gimi_body_outline_enabled(cls):

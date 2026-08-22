@@ -133,6 +133,7 @@ class PanelBasicInformation(bpy.types.Panel):
         if GlobalConfig.logic_name == LogicName.GIMI or str(GlobalConfig.gamename).strip().casefold() in {
             "gimi", "genshinimpact", "原神",
         }:
+            layout.prop(global_properties, "align_face_on_import")
             layout.prop(global_properties, "gimi_high_fidelity_rendering")
             if global_properties.gimi_high_fidelity_rendering:
                 outline = layout.column(align=True)

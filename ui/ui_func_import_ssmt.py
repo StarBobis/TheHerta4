@@ -23,6 +23,85 @@ from ..workspace.ssmt_workspace import SSMTWorkSpace, WorkSpaceModel
 from ..blueprint.blueprint_export_helper import BlueprintExportHelper
 from ..blueprint.blueprint_node_texture import SSMTNode_Texture
 import json
+from math import pi
+from mathutils import Quaternion, Vector
+
+
+_SUBMESH_ROLES = {"Face", "Neck", "Eye"}
+_SUBMESH_ROLE_PROPERTY = "SSMT:SubMeshRole"
+_FACE_NECK_PLANE_TOLERANCE = 0.001
+_FACE_CHIN_HEIGHT_TOLERANCE = 0.004
+_NECK_ANCHOR_SEARCH_RADIUS = 0.06
+
+
+def _read_submesh_role(json_path: str) -> str:
+    """Read the SSMT role contract; absent/unknown values are unmarked."""
+    try:
+        data = JsonUtils.LoadFromFile(json_path)
+    except Exception:
+        return ""
+    role = data.get("SubMeshRole", "") if isinstance(data, dict) else ""
+    return role if role in _SUBMESH_ROLES else ""
+
+
+def _yoz_vertices(obj, rotation, referenced_only=False):
+    mesh = obj.data
+    referenced = None
+    if referenced_only:
+        referenced = {index for polygon in mesh.polygons for index in polygon.vertices}
+    vertices = [
+        rotation @ vertex.co
+        for vertex in mesh.vertices
+        if referenced is None or vertex.index in referenced
+    ]
+    if not vertices:
+        return []
+    nearest = min(abs(vertex.x) for vertex in vertices)
+    return [vertex for vertex in vertices if abs(vertex.x) <= nearest + _FACE_NECK_PLANE_TOLERANCE]
+
+
+def _find_face_anchor(face_objects, rotation):
+    vertices = [vertex for obj in face_objects for vertex in _yoz_vertices(obj, rotation)]
+    if not vertices:
+        return None
+    lowest_z = min(vertex.z for vertex in vertices)
+    candidates = [vertex for vertex in vertices if vertex.z <= lowest_z + _FACE_CHIN_HEIGHT_TOLERANCE]
+    return max(candidates, key=lambda vertex: vertex.y).copy()
+
+
+def _find_neck_anchor(neck_obj):
+    vertices = _yoz_vertices(neck_obj, Quaternion(), referenced_only=True)
+    if not vertices:
+        return None
+    highest = max(vertices, key=lambda vertex: (vertex.z, vertex.y))
+    expected = highest + Vector((0.0, -0.024, -0.18))
+    nearby = [vertex for vertex in vertices if (vertex - expected).length <= _NECK_ANCHOR_SEARCH_RADIUS]
+    candidates = nearby or vertices
+    return min(candidates, key=lambda vertex: (vertex.y, (vertex - expected).length_squared)).copy()
+
+
+def _apply_face_neck_object_alignment(imported_objects: dict) -> bool:
+    """Port of FaceNeckObjectAlignment.ts; mesh coordinates remain untouched."""
+    faces = [obj for obj, _ in imported_objects.values() if obj.get(_SUBMESH_ROLE_PROPERTY, "") == "Face"]
+    necks = [obj for obj, _ in imported_objects.values() if obj.get(_SUBMESH_ROLE_PROPERTY, "") == "Neck"]
+    if not faces or not necks:
+        return False
+
+    rotation = Quaternion((1.0, 0.0, 0.0), pi / 2) @ Quaternion((0.0, 0.0, 1.0), -pi / 2)
+    for obj in faces:
+        obj.location = (0.0, 0.0, 0.0)
+        obj.rotation_mode = 'QUATERNION'
+        obj.rotation_quaternion = rotation
+
+    face_anchor = _find_face_anchor(faces, rotation)
+    neck_anchor = _find_neck_anchor(necks[0])
+    if face_anchor is None or neck_anchor is None:
+        return False
+    translation = neck_anchor - face_anchor
+    translation.x = 0.0
+    for obj in faces:
+        obj.location = translation
+    return True
 
 
 # 全量导入逻辑
@@ -236,6 +315,26 @@ def _link_group_to_output(tree, group_node, output_node):
     if len(output_node.inputs) == 0 or output_node.inputs[-1].is_linked:
         output_node.inputs.new('SSMTSocketObject', iface_("组 {count}").format(count=len(output_node.inputs) + 1))
     tree.links.new(group_node.outputs[0], output_node.inputs[-1])
+
+
+def _create_face_mod_export_node(tree, oldfoldername_node_dict, oldfoldername_jsonpath_dict, location):
+    """Create and wire the face exporter when at least one imported SubMesh is marked Face."""
+    face_nodes = []
+    for old_folder_name, object_node in oldfoldername_node_dict.items():
+        json_path = oldfoldername_jsonpath_dict.get(old_folder_name, "")
+        if json_path and _read_submesh_role(json_path) == "Face":
+            face_nodes.append(object_node)
+    if not face_nodes:
+        return None
+
+    export_node = tree.nodes.new('SSMTNode_Face_Mod_Export')
+    export_node.location = location
+    export_node.label = "导出面部 Mod"
+    for object_node in face_nodes:
+        if export_node.inputs[-1].is_linked:
+            export_node.inputs.new('SSMTSocketObject', f"面部组 {len(export_node.inputs) + 1}")
+        tree.links.new(object_node.outputs[0], export_node.inputs[-1])
+    return export_node
 
 def _create_and_layout_obj_info_nodes(tree, group_node, foldername_imported_obj_dict, ws_model, oldfoldername_jsonpath_hint=None):
     """创建 Object Info 节点、连接到 Group，并按 Submesh 分组布局。
@@ -585,6 +684,7 @@ def ImprotFromWorkSpaceFull(self, context):
                         if imported_obj is not None:
                             imported_obj.name = display_name
                             imported_obj.data.name = imported_obj.name
+                            imported_obj[_SUBMESH_ROLE_PROPERTY] = _read_submesh_role(json_file_path)
                             foldername_imported_obj_dict[new_submesh_name] = (imported_obj, display_name)
                             all_submesh_display_names.append(display_name)
                             successful_import_count += 1
@@ -606,6 +706,10 @@ def ImprotFromWorkSpaceFull(self, context):
     save_import_json_path = os.path.join(GlobalConfig.path_workspace_folder(), "Import.json")
     JsonUtils.SaveToFile(json_dict=foldername_gametypename_dict, filepath=save_import_json_path)
     
+    if getattr(context.scene.global_properties, "align_face_on_import", False):
+        if not _apply_face_neck_object_alignment(foldername_imported_obj_dict):
+            self.report({'WARNING'}, "矫正面部需要至少一个有效的 Face 和 Neck 标记。")
+
     _deselect_imported_objects(foldername_imported_obj_dict)
     _deselect_imported_shader_nodes(foldername_imported_obj_dict)
 
@@ -660,6 +764,11 @@ def ImprotFromWorkSpaceFull(self, context):
         output_node = tree.nodes.new('SSMTNode_Result_Output')
         output_node.location = (max_node_right + 1040.0, -200.0)
         output_node.label = "Generate Mod"
+
+        _create_face_mod_export_node(
+            tree, oldfoldername_node_dict, oldfoldername_jsonpath_dict,
+            (max_node_right + 1040.0, -760.0),
+        )
         
         # 两个并列的分组节点分别直接连到 Output
         _link_group_to_output(tree, group_node, output_node)
@@ -870,6 +979,7 @@ def ImprotFromWorkSpaceSelected(self, context, submesh_lod_info_list, force_game
                     if imported_obj is not None:
                         imported_obj.name = display_name
                         imported_obj.data.name = imported_obj.name
+                        imported_obj[_SUBMESH_ROLE_PROPERTY] = _read_submesh_role(json_file_path)
                         foldername_imported_obj_dict[new_submesh_name] = (imported_obj, display_name)
                         all_submesh_display_names.append(display_name)
                         successful_import_count += 1
@@ -901,6 +1011,10 @@ def ImprotFromWorkSpaceSelected(self, context, submesh_lod_info_list, force_game
             existing_import_json = {}
     existing_import_json.update(foldername_gametypename_dict)
     JsonUtils.SaveToFile(json_dict=existing_import_json, filepath=save_import_json_path)
+
+    if getattr(context.scene.global_properties, "align_face_on_import", False):
+        if not _apply_face_neck_object_alignment(foldername_imported_obj_dict):
+            self.report({'WARNING'}, "矫正面部需要至少一个有效的 Face 和 Neck 标记。")
 
     _deselect_imported_objects(foldername_imported_obj_dict)
     _deselect_imported_shader_nodes(foldername_imported_obj_dict)
@@ -963,6 +1077,11 @@ def _generate_blueprint_for_imported_objects(context, foldername_imported_obj_di
         output_node = tree.nodes.new('SSMTNode_Result_Output')
         output_node.location = (max_node_right + 1040.0, -200.0)
         output_node.label = "Generate Mod"
+
+        _create_face_mod_export_node(
+            tree, oldfoldername_node_dict, oldfoldername_jsonpath_dict or {},
+            (max_node_right + 1040.0, -760.0),
+        )
 
         _link_group_to_output(tree, group_node, output_node)
         _link_group_to_output(tree, hash_group_node, output_node)

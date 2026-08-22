@@ -61,6 +61,7 @@ class SubmeshJson:
 	IndexBufferList:list[SubmeshIndexBuffer] = field(init=False, default_factory=list)
 	CategoryBufferList:list[SubmeshCategoryBuffer] = field(init=False, default_factory=list)
 	TextureMarkUpInfoList:list = field(init=False, default_factory=list)
+	SubMeshRole:str = field(init=False, default="")
 
 	def __post_init__(self):
 		self.FileName = os.path.basename(self.JsonFilePath)
@@ -80,6 +81,8 @@ class SubmeshJson:
 		self.LocalBoundingBoxMax = list(self.JsonDict.get("LocalBoundingBoxMax", []))
 		self.VertexCompressionParams = list(self.JsonDict.get("VertexCompressionParams", []))
 		self.TextureMarkUpInfoList = list(self.JsonDict.get("TextureMarkUpInfoList", []))
+		role = self.JsonDict.get("SubMeshRole", "")
+		self.SubMeshRole = role if role in {"Face", "Neck", "Eye"} else ""
 		self.VertexOffset = int(self.JsonDict.get("VertexOffset", 0))
 		self.VertexCount = int(self.JsonDict.get("VertexCount", -1))
 		self.MatchCS = str(self.JsonDict.get("match_cs", "") or "").strip()
