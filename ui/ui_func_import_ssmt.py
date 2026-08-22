@@ -19,6 +19,7 @@ from ..common.global_config import GlobalConfig
 from ..common.m_texture_helper import M_TextureHelper
 from ..common.texture_naming import normalize_texture_filename, normalize_texture_resource_name
 from ..common.ssmt_import_helper import SSMTImportHelper
+from ..common.gimi_high_fidelity_material import GIMIHighFidelityMaterial
 from ..workspace.ssmt_workspace import SSMTWorkSpace, WorkSpaceModel
 from ..blueprint.blueprint_export_helper import BlueprintExportHelper
 from ..blueprint.blueprint_node_texture import SSMTNode_Texture
@@ -42,6 +43,73 @@ def _read_submesh_role(json_path: str) -> str:
         return ""
     role = data.get("SubMeshRole", "") if isinstance(data, dict) else ""
     return role if role in _SUBMESH_ROLES else ""
+
+
+def _get_eye_diffuse_paths(json_path: str) -> list[str]:
+    """Read the ordered, Blender-facing ``DiffuseMap`` metadata field."""
+    try:
+        data = JsonUtils.LoadFromFile(json_path)
+    except Exception:
+        return []
+    filenames = data.get("DiffuseMap", []) if isinstance(data, dict) else []
+    if not isinstance(filenames, list):
+        return []
+    directory = os.path.dirname(json_path)
+    paths = []
+    for filename in filenames:
+        if not isinstance(filename, str) or not filename:
+            continue
+        # The interface defines these as filenames relative to the JSON file.
+        path = os.path.join(directory, os.path.basename(filename))
+        if os.path.isfile(path):
+            paths.append(path)
+    return paths
+
+
+def _get_face_shader_metadata(json_path: str) -> tuple[list[str], str, str, str | None]:
+    """Read SSMT4's face texture roles from the target JSON metadata."""
+    diffuse_paths = _get_eye_diffuse_paths(json_path)
+    try:
+        data = JsonUtils.LoadFromFile(json_path)
+    except Exception:
+        return diffuse_paths, '', 'R', None
+    directory = os.path.dirname(json_path)
+    sdf_path, sdf_channel, shadow_path = '', 'R', None
+    marks = data.get('TextureMarkUpInfoList', []) if isinstance(data, dict) else []
+    for mark in marks if isinstance(marks, list) else []:
+        if not isinstance(mark, dict):
+            continue
+        name = str(mark.get('MarkName', '') or '').casefold()
+        filename = str(mark.get('MarkFileName', '') or '')
+        path = os.path.join(directory, os.path.basename(filename))
+        if not os.path.isfile(path):
+            continue
+        if name == 'facesdfmap' and not sdf_path:
+            sdf_path = path
+            channel = str(mark.get('FaceSDFChannel', 'R') or 'R').upper()
+            sdf_channel = channel if channel in {'R', 'G', 'B', 'A'} else 'R'
+        elif name in {'faceshadow', 'lightmap'} and shadow_path is None:
+            shadow_path = path
+    return diffuse_paths, sdf_path, sdf_channel, shadow_path
+
+
+def _apply_submesh_role_rendering(obj, role: str, json_path: str) -> None:
+    if role not in {"Face", "Eye"}:
+        return
+    diffuse_paths = _get_eye_diffuse_paths(json_path)
+    if not diffuse_paths:
+        print(f"[GIMI {role}] {json_path} 没有有效的 DiffuseMap 快捷元信息，跳过材质构建。")
+        return
+    face_metadata = _get_face_shader_metadata(json_path) if role == 'Face' else None
+    for slot in getattr(obj, "material_slots", ()):
+        if role == 'Eye':
+            GIMIHighFidelityMaterial.configure_eye_alpha_emission(slot.material, diffuse_paths)
+        else:
+            _, sdf_path, sdf_channel, shadow_path = face_metadata
+            if not GIMIHighFidelityMaterial.configure_face_sdf_material(
+                slot.material, diffuse_paths, sdf_path, sdf_channel, shadow_path,
+            ):
+                print(f"[GIMI Face] {json_path} 缺少 FaceSDFMap，保留常规材质。")
 
 
 def _yoz_vertices(obj, rotation, referenced_only=False):
@@ -684,7 +752,9 @@ def ImprotFromWorkSpaceFull(self, context):
                         if imported_obj is not None:
                             imported_obj.name = display_name
                             imported_obj.data.name = imported_obj.name
-                            imported_obj[_SUBMESH_ROLE_PROPERTY] = _read_submesh_role(json_file_path)
+                            role = _read_submesh_role(json_file_path)
+                            imported_obj[_SUBMESH_ROLE_PROPERTY] = role
+                            _apply_submesh_role_rendering(imported_obj, role, json_file_path)
                             foldername_imported_obj_dict[new_submesh_name] = (imported_obj, display_name)
                             all_submesh_display_names.append(display_name)
                             successful_import_count += 1
@@ -979,7 +1049,9 @@ def ImprotFromWorkSpaceSelected(self, context, submesh_lod_info_list, force_game
                     if imported_obj is not None:
                         imported_obj.name = display_name
                         imported_obj.data.name = imported_obj.name
-                        imported_obj[_SUBMESH_ROLE_PROPERTY] = _read_submesh_role(json_file_path)
+                        role = _read_submesh_role(json_file_path)
+                        imported_obj[_SUBMESH_ROLE_PROPERTY] = role
+                        _apply_submesh_role_rendering(imported_obj, role, json_file_path)
                         foldername_imported_obj_dict[new_submesh_name] = (imported_obj, display_name)
                         all_submesh_display_names.append(display_name)
                         successful_import_count += 1

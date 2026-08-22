@@ -816,6 +816,285 @@ class GIMIHighFidelityMaterial:
         return not filepath.endswith(('.jpg', '.jpeg'))
 
     @classmethod
+    def configure_eye_alpha_emission(cls, material, diffuse_paths: list[str]) -> bool:
+        """Build SSMT4's eye pass: base + straight-alpha diffuse overlays."""
+        if material is None or not diffuse_paths:
+            return False
+        material.use_nodes = True
+        nodes, links = material.node_tree.nodes, material.node_tree.links
+        nodes.clear()
+
+        uv = nodes.new('ShaderNodeUVMap')
+        uv.name = 'GIMI TEXCOORD.xy'
+        uv.uv_map = 'TEXCOORD.xy'
+        uv.location = (-1000, 0)
+        diffuse_color = None
+        # SSMT4 exposes four authored diffuse-layer uniforms.  Do not silently
+        # reinterpret later layers with a different blend equation.
+        for index, path in enumerate(diffuse_paths[:4]):
+            texture = cls._make_image_node(nodes, path, f'Eye DiffuseMap{index}', (-780, -index * 260))
+            if texture.image is None:
+                continue
+            try:
+                texture.image.alpha_mode = 'STRAIGHT'
+            except (AttributeError, TypeError, ValueError):
+                pass
+            links.new(uv.outputs['UV'], texture.inputs['Vector'])
+            if diffuse_color is None:
+                # Map 0 is opaque base; its alpha is authored detail, not
+                # coverage, so it must not attenuate the base RGB.
+                diffuse_color = texture.outputs['Color']
+                continue
+
+            overlay = nodes.new('ShaderNodeMixRGB')
+            overlay.name = f'Eye DiffuseMap{index} Source Over'
+            overlay.label = 'SSMT4 overlay alpha coverage'
+            overlay.blend_type = 'MIX'
+            overlay.location = (-300, -index * 260)
+            links.new(texture.outputs['Alpha'], overlay.inputs[0])
+            links.new(diffuse_color, overlay.inputs[1])
+            links.new(texture.outputs['Color'], overlay.inputs[2])
+            diffuse_color = overlay.outputs['Color']
+
+        if diffuse_color is None:
+            return False
+        output = nodes.new('ShaderNodeOutputMaterial')
+        output.location = (300, 0)
+        try:
+            emission = nodes.new('ShaderNodeEmission')
+            emission.name = 'SSMT4 Eye Unlit Output'
+            emission.location = (60, 0)
+            emission.inputs['Strength'].default_value = 1.0
+            links.new(diffuse_color, emission.inputs['Color'])
+            links.new(emission.outputs['Emission'], output.inputs['Surface'])
+        except RuntimeError:
+            emission = nodes.new('ShaderNodeBsdfPrincipled')
+            emission.name = 'SSMT4 Eye Unlit Output'
+            emission.location = (60, 0)
+            emission.inputs['Base Color'].default_value = (0.0, 0.0, 0.0, 1.0)
+            emission.inputs['Emission Strength'].default_value = 1.0
+            links.new(diffuse_color, emission.inputs['Emission Color'])
+            links.new(emission.outputs['BSDF'], output.inputs['Surface'])
+
+        material['SSMT:EyeDiffuseMapPaths'] = list(diffuse_paths)
+        material['SSMT:MaterialModel'] = 'GIMI Eye SSMT4 Unlit'
+        material['SSMT:SubMeshRole'] = 'Eye'
+        return True
+
+    @classmethod
+    def configure_face_sdf_material(
+        cls, material, diffuse_paths: list[str], face_sdf_path: str, face_sdf_channel: str = 'R', face_shadow_path: str | None = None,
+    ) -> bool:
+        """Build SSMT4's FaceSDF unlit pass (separate from Body/Clothes)."""
+        if material is None or not diffuse_paths or not face_sdf_path:
+            return False
+        material.use_nodes = True
+        nodes, links = material.node_tree.nodes, material.node_tree.links
+        nodes.clear()
+        light_object, _ = cls._ensure_preview_objects()
+
+        def bind_sun_azimuth(socket, expression: str):
+            """Drive a scalar from the shared virtual sun's horizontal angle."""
+            try:
+                socket.driver_remove('default_value')
+            except (RuntimeError, TypeError):
+                pass
+            driver = socket.driver_add('default_value').driver
+            driver.type = 'SCRIPTED'
+            driver.expression = expression
+            variable = driver.variables.new()
+            variable.name = 'azimuth'
+            variable.type = 'SINGLE_PROP'
+            variable.targets[0].id = light_object
+            variable.targets[0].data_path = 'rotation_euler[2]'
+
+        uv = nodes.new('ShaderNodeUVMap')
+        uv.name = 'GIMI TEXCOORD.xy'
+        uv.uv_map = 'TEXCOORD.xy'
+        uv.location = (-1250, 0)
+        diffuse_color = None
+        for index, path in enumerate(diffuse_paths):
+            texture = cls._make_image_node(nodes, path, f'Face DiffuseMap{index}', (-1050, 220 - index * 220))
+            if texture.image is None:
+                continue
+            # Face diffuse alpha carries packed blush/detail data.  It is not
+            # a premultiplied colour channel and must remain untouched by the
+            # image loader; FaceSDF owns the actual face-shadow semantics.
+            try:
+                texture.image.alpha_mode = 'CHANNEL_PACKED'
+            except (AttributeError, TypeError, ValueError):
+                pass
+            links.new(uv.outputs['UV'], texture.inputs['Vector'])
+            if diffuse_color is None:
+                diffuse_color = texture.outputs['Color']
+                continue
+            # SSMT4: map 0 is the base; later DiffuseMaps are straight-alpha overlays.
+            overlay = nodes.new('ShaderNodeMixRGB')
+            overlay.name = f'Face DiffuseMap{index} Source Over'
+            overlay.label = 'Overlay Alpha coverage'
+            overlay.blend_type = 'MIX'
+            overlay.location = (-780, 220 - index * 220)
+            links.new(texture.outputs['Alpha'], overlay.inputs[0])
+            links.new(diffuse_color, overlay.inputs[1])
+            links.new(texture.outputs['Color'], overlay.inputs[2])
+            diffuse_color = overlay.outputs['Color']
+        if diffuse_color is None:
+            return False
+
+        # Keep Face in the same preview colour pipeline as Body/Clothes.
+        # Without this shared curve + value lift, an otherwise correct SDF
+        # branch is visibly desaturated/darker than the neighbouring body.
+        grade = nodes.new('ShaderNodeGroup')
+        grade.name = 'grade_face_base_color'
+        grade.label = 'NT调色（与身体一致）'
+        grade.node_tree = cls._grade_base_group()
+        grade.location = (-780, 270)
+        links.new(diffuse_color, grade.inputs['Base Color'])
+        diffuse_color = grade.outputs['Graded Color']
+
+        sdf = cls._make_image_node(nodes, face_sdf_path, 'FaceSDFMap', (-1050, -520), non_color=True)
+        if sdf.image is None:
+            return False
+        # Face shadows use the virtual sun projected onto the face X/Y plane.
+        # In that plane Z rotation is the horizontal azimuth: (sin(z), cos(z)).
+        # This is the same front/side split that SSMT4 feeds to FaceSDF.
+        face_front = nodes.new('ShaderNodeValue')
+        face_front.name = 'Face Light Front Dot'
+        face_front.label = 'Virtual Sun · Face Forward'
+        face_front.location = (-1030, -700)
+        bind_sun_azimuth(face_front.outputs[0], 'cos(azimuth)')
+        face_side = nodes.new('ShaderNodeValue')
+        face_side.name = 'Face Light Side Dot'
+        face_side.label = 'Virtual Sun · Face Right'
+        face_side.location = (-1030, -790)
+        bind_sun_azimuth(face_side.outputs[0], 'sin(azimuth)')
+
+        separate_uv = nodes.new('ShaderNodeSeparateXYZ')
+        separate_uv.name = 'FaceSDF UV Split'
+        separate_uv.location = (-800, -700)
+        links.new(uv.outputs['UV'], separate_uv.inputs['Vector'])
+        flip_x = nodes.new('ShaderNodeMath')
+        flip_x.name = 'FaceSDF Mirror X'
+        flip_x.operation = 'SUBTRACT'
+        flip_x.inputs[0].default_value = 1.0
+        flip_x.location = (-610, -700)
+        links.new(separate_uv.outputs['X'], flip_x.inputs[1])
+        mirror_for_left_light = nodes.new('ShaderNodeMath')
+        mirror_for_left_light.name = 'FaceSDF Mirror for Left Light'
+        mirror_for_left_light.operation = 'LESS_THAN'
+        mirror_for_left_light.inputs[1].default_value = 0.0
+        mirror_for_left_light.location = (-610, -790)
+        links.new(face_side.outputs[0], mirror_for_left_light.inputs[0])
+        select_x = nodes.new('ShaderNodeMix')
+        select_x.name = 'FaceSDF Mirrored X'
+        select_x.data_type = 'FLOAT'
+        select_x.location = (-410, -690)
+        links.new(mirror_for_left_light.outputs[0], select_x.inputs['Factor'])
+        links.new(separate_uv.outputs['X'], select_x.inputs['A'])
+        links.new(flip_x.outputs[0], select_x.inputs['B'])
+        sdf_uv = nodes.new('ShaderNodeCombineXYZ')
+        sdf_uv.name = 'FaceSDF UV (light side)'
+        sdf_uv.location = (-210, -690)
+        links.new(select_x.outputs['Result'], sdf_uv.inputs['X'])
+        links.new(separate_uv.outputs['Y'], sdf_uv.inputs['Y'])
+        links.new(sdf_uv.outputs['Vector'], sdf.inputs['Vector'])
+        channel = str(face_sdf_channel or 'R').upper()
+        if channel == 'A':
+            sdf_value = sdf.outputs['Alpha']
+        else:
+            separate = nodes.new('ShaderNodeSeparateColor')
+            separate.name = 'FaceSDF Channel'
+            separate.mode = 'RGB'
+            separate.location = (-780, -520)
+            links.new(sdf.outputs['Color'], separate.inputs['Color'])
+            sdf_value = separate.outputs[{'R': 'Red', 'G': 'Green', 'B': 'Blue'}.get(channel, 'Red')]
+
+        # threshold = saturate(0.5 - 0.5 * frontDot), exactly as SSMT4.
+        threshold = nodes.new('ShaderNodeMath')
+        threshold.name = 'FaceSDF Shadow Threshold'
+        threshold.label = '0.5 - 0.5 × Face Forward'
+        threshold.operation = 'MULTIPLY_ADD'
+        threshold.inputs[1].default_value = -0.5
+        threshold.inputs[2].default_value = 0.5
+        threshold.use_clamp = True
+        threshold.location = (-530, -640)
+        links.new(face_front.outputs[0], threshold.inputs[0])
+        shadow = nodes.new('ShaderNodeMath')
+        shadow.name = 'FaceSDF Shadow Mask'
+        shadow.operation = 'GREATER_THAN'
+        shadow.location = (-300, -520)
+        links.new(threshold.outputs[0], shadow.inputs[0])
+        links.new(sdf_value, shadow.inputs[1])
+
+        light_tint = nodes.new('ShaderNodeRGB')
+        light_tint.name = 'Face Light Tint'
+        light_tint.outputs[0].default_value = (0.85, 0.787525, 0.780263, 1.0)
+        light_tint.location = (-530, 40)
+        shadow_tint = nodes.new('ShaderNodeRGB')
+        shadow_tint.name = 'Face Shadow Tint'
+        shadow_tint.outputs[0].default_value = (0.7553715, 0.31918, 0.2698094, 1.0)
+        shadow_tint.location = (-530, -80)
+        lit = nodes.new('ShaderNodeMixRGB')
+        lit.name = 'Face Light Color'
+        lit.blend_type = 'MULTIPLY'
+        lit.inputs[0].default_value = 1.0
+        lit.location = (-300, 80)
+        links.new(diffuse_color, lit.inputs[1])
+        links.new(light_tint.outputs[0], lit.inputs[2])
+        dark = nodes.new('ShaderNodeMixRGB')
+        dark.name = 'Face Shadow Color'
+        dark.blend_type = 'MULTIPLY'
+        dark.inputs[0].default_value = 1.0
+        dark.location = (-300, -80)
+        links.new(diffuse_color, dark.inputs[1])
+        links.new(shadow_tint.outputs[0], dark.inputs[2])
+        toon = nodes.new('ShaderNodeMixRGB')
+        toon.name = 'FaceSDF Toon Color'
+        toon.blend_type = 'MIX'
+        toon.location = (-50, 40)
+        links.new(shadow.outputs[0], toon.inputs[0])
+        links.new(lit.outputs['Color'], toon.inputs[1])
+        links.new(dark.outputs['Color'], toon.inputs[2])
+        final_color = toon.outputs['Color']
+
+        if face_shadow_path:
+            face_shadow = cls._make_image_node(nodes, face_shadow_path, 'FaceShadow / LightMap', (-520, -320), non_color=True)
+            if face_shadow.image is not None:
+                links.new(uv.outputs['UV'], face_shadow.inputs['Vector'])
+                fixed_regions = nodes.new('ShaderNodeMixRGB')
+                fixed_regions.name = 'Face Fixed Regions (LightMap Alpha)'
+                fixed_regions.blend_type = 'MIX'
+                fixed_regions.location = (160, 40)
+                links.new(face_shadow.outputs['Alpha'], fixed_regions.inputs[0])
+                links.new(final_color, fixed_regions.inputs[1])
+                links.new(diffuse_color, fixed_regions.inputs[2])
+                final_color = fixed_regions.outputs['Color']
+
+        output = nodes.new('ShaderNodeOutputMaterial')
+        output.location = (600, 40)
+        try:
+            emission = nodes.new('ShaderNodeEmission')
+            emission.name = 'SSMT Face Unlit Output'
+            emission.location = (390, 40)
+            emission.inputs['Strength'].default_value = 1.0
+            links.new(final_color, emission.inputs['Color'])
+            links.new(emission.outputs['Emission'], output.inputs['Surface'])
+        except RuntimeError:
+            emission = nodes.new('ShaderNodeBsdfPrincipled')
+            emission.name = 'SSMT Face Unlit Output'
+            emission.location = (390, 40)
+            emission.inputs['Emission Strength'].default_value = 1.0
+            links.new(final_color, emission.inputs['Emission Color'])
+            links.new(emission.outputs['BSDF'], output.inputs['Surface'])
+
+        material['SSMT:MaterialModel'] = 'GIMI FaceSDF Unlit'
+        material['SSMT:FaceSDFMapPath'] = face_sdf_path
+        material['SSMT:FaceSDFChannel'] = channel
+        material['SSMT:FaceShadowPath'] = face_shadow_path or ''
+        material['SSMT:SubMeshRole'] = 'Face'
+        return True
+
+    @classmethod
     def build_character(
         cls,
         material,
