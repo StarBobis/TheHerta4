@@ -282,7 +282,7 @@ class MaterialCombinerPanel(bpy.types.Panel):
         box = layout.box().column()
         box.label(text="安装完成", icon="CHECKMARK")
         box.label(
-            text="Pillow 已就绪，可以直接使用", icon="FILE_TICK"
+            text="Pillow 已安装，请重启 Blender 后使用", icon="FILE_TICK"
         )
 
     @staticmethod

@@ -26,7 +26,7 @@ def draw_ui(context: bpy.types.Context, m_col: bpy.types.UILayout) -> None:
         if globs.pil_install_success:
             col = m_col.box().column()
             col.label(text="安装完成", icon="CHECKMARK")
-            col.label(text="请重启 Blender")
+            col.label(text="Pillow 已安装，请重启 Blender 后使用")
         else:
             box = m_col.box().column()
             box.label(text="安装失败", icon="ERROR")
