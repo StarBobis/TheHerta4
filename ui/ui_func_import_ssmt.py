@@ -426,6 +426,24 @@ def _create_face_mod_export_node(tree, oldfoldername_node_dict, oldfoldername_js
         tree.links.new(object_node.outputs[0], export_node.inputs[-1])
     return export_node
 
+
+def _exclude_marked_face_objects_from_regular_group(
+    tree, group_node, oldfoldername_node_dict, oldfoldername_jsonpath_dict,
+):
+    """Disconnect only JSON-marked Face objects from the normal mesh group."""
+    if group_node is None:
+        return
+    face_nodes = {
+        object_node.name
+        for old_folder_name, object_node in oldfoldername_node_dict.items()
+        if _read_submesh_role(oldfoldername_jsonpath_dict.get(old_folder_name, "")) == "Face"
+    }
+    for link in list(tree.links):
+        # Blender may hand out distinct Python RNA wrappers for the same node;
+        # compare stable node names instead of object identity (``is``).
+        if link.from_node.name in face_nodes and link.to_node.name == group_node.name:
+            tree.links.remove(link)
+
 def _create_and_layout_obj_info_nodes(tree, group_node, foldername_imported_obj_dict, ws_model, oldfoldername_jsonpath_hint=None):
     """创建 Object Info 节点、连接到 Group，并按 Submesh 分组布局。
 
@@ -871,6 +889,9 @@ def ImprotFromWorkSpaceFull(self, context):
             group_node.update()
         if hash_group_node is not None and hasattr(hash_group_node, "update"):
             hash_group_node.update()
+        _exclude_marked_face_objects_from_regular_group(
+            tree, group_node, oldfoldername_node_dict, oldfoldername_jsonpath_dict,
+        )
 
         BlueprintExportHelper.set_runtime_blueprint_tree(tree)
 
@@ -1186,6 +1207,9 @@ def _generate_blueprint_for_imported_objects(context, foldername_imported_obj_di
             group_node.update()
         if hash_group_node is not None and hasattr(hash_group_node, "update"):
             hash_group_node.update()
+        _exclude_marked_face_objects_from_regular_group(
+            tree, group_node, oldfoldername_node_dict, oldfoldername_jsonpath_dict or {},
+        )
 
         BlueprintExportHelper.set_runtime_blueprint_tree(tree)
 
