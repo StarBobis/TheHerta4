@@ -220,7 +220,7 @@ class SSMT_OT_PickObjectModal(bpy.types.Operator):
     '''Modal operator for picking objects in 3D View'''
     bl_idname = "ssmt.pick_object_modal"
     bl_label = "选取对象"
-    bl_options = {'REGISTER', 'INTERNAL'}
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
     
     def invoke(self, context, event):
         global _picking_node_name, _picking_tree_name
@@ -649,6 +649,7 @@ class SSMT_OT_SwitchKey_AddSocket(bpy.types.Operator):
     '''Add a new socket to the switch node'''
     bl_idname = "ssmt.switch_add_socket"
     bl_label = "添加插槽"
+    bl_options = {'REGISTER', 'UNDO'}
     
     node_name: bpy.props.StringProperty() # type: ignore
 
@@ -666,6 +667,7 @@ class SSMT_OT_SwitchKey_RemoveSocket(bpy.types.Operator):
     '''Remove the last socket from the switch node'''
     bl_idname = "ssmt.switch_remove_socket"
     bl_label = "移除插槽"
+    bl_options = {'REGISTER', 'UNDO'}
     
     node_name: bpy.props.StringProperty() # type: ignore
 

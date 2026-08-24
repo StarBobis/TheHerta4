@@ -79,19 +79,16 @@ class InstallPIL(bpy.types.Operator):
         globs.pil_available = success
 
         if success:
-            globs.refresh_pil_availability()
-            success = _refresh_combiner_pillow_cache()
-            globs.pil_install_success = success
-            globs.pil_available = success
-            if not success:
-                globs.pil_install_error_message = (
-                    globs.pil_install_error_message
-                    or "安装后仍无法导入 Pillow 库。"
-                )
+            # Blender may keep import state that prevents loading a package just
+            # installed by pip. Wait for restart so the add-on initializes
+            # Pillow from a clean import state.
+            globs.pil_install_success = True
+            globs.pil_available = False
+            globs.pil_install_error_message = ""
 
         self.report(
             {"INFO" if success else "ERROR"},
-            "安装完成" if success else "安装失败",
+            "Pillow 安装完成，请重启 Blender" if success else "安装失败",
         )
         return {"FINISHED"} if success else {"CANCELLED"}
 
