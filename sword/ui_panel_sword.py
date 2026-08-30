@@ -10,6 +10,8 @@ from ..utils.obj_utils import ObjUtils
 
 from .mesh_import_helper import MigotoBinaryFile, MeshImportHelper
 from ..common.global_config import GlobalConfig
+from ..common.ssmt_import_helper import SSMTImportHelper
+from ..ui.ui_func_import_ssmt import SSMT4ImportRaw
 
 from ..utils.translate_utils import iface_, rpt_
 from ..utils.json_utils import JsonUtils
@@ -298,7 +300,7 @@ class Sword_ImportTexture_WM_OT_ApplyImageToMaterial(Operator):
 class SwordImportAllReversed(bpy.types.Operator):
     bl_idname = "ssmt.import_all_reverse"
     bl_label = "一键导入逆向出来的全部模型"
-    bl_description = "把上一次一键逆向出来的所有模型全部导入到Blender，然后你可以手动筛选并删除错误的数据类型，流程上更加方便。"
+    bl_description = "把上一次一键逆向出来的所有模型全部导入到Blender，然后你可以手动筛选并删除错误的数据类型，流程上更加方便。支持 ib_vb_fmt 和 ssmt_fmt 两种逆向输出格式。"
     bl_options = {'REGISTER', 'UNDO'}
 
     def _resolve_reverse_output_folder_path(self, context):
@@ -335,6 +337,69 @@ class SwordImportAllReversed(bpy.types.Operator):
             return {'FINISHED'}
         print("测试导入")
 
+        # MMT 逆向成功后会写入 ReverseOutputFormat 键值（与 ReverseOutputFolder 对称）
+        # ib_vb_fmt 走旧的 .fmt 解析导入，ssmt_fmt 走 SSMT Json 导入
+        # 找不到该键值时直接视为 ib_vb_fmt 格式
+        reverse_output_format = GlobalConfig.reverse_output_format()
+        if reverse_output_format == "ssmt_fmt":
+            return self._import_ssmt_fmt(context, reverse_output_folder_path)
+        return self._import_ib_vb_fmt(context, reverse_output_folder_path)
+
+    def _import_ssmt_fmt(self, context, reverse_output_folder_path):
+        '''
+        ssmt_fmt 格式导入：
+        遍历逆向输出文件夹下的所有子文件夹，每个子文件夹内可能有多个Json文件，
+        Json文件的名称就是它的数据类型，对每个Json文件创建 drawib_数据类型名称 的集合并导入。
+        '''
+        total_folder_name = os.path.basename(reverse_output_folder_path)
+
+        reverse_collection = CollectionUtils.create_new_collection(collection_name=total_folder_name,color_tag=CollectionColor.Red)
+        bpy.context.scene.collection.children.link(reverse_collection)
+
+        # 获取所有子文件夹
+        subfolder_path_list = [f.path for f in os.scandir(reverse_output_folder_path) if f.is_dir()]
+        if not subfolder_path_list:
+            self.report({"ERROR"}, "目标目录下未找到可导入的子文件夹")
+            return {'FINISHED'}
+
+        imported_count = 0
+        for subfolder_path in subfolder_path_list:
+
+            # 获取所有.json文件，Json文件的名称就是它的数据类型
+            json_files = []
+            for file in os.listdir(subfolder_path):
+                if file.endswith('.json'):
+                    json_files.append(os.path.join(subfolder_path, file))
+
+            for json_filepath in json_files:
+                # 获取带后缀的文件名
+                filename_with_extension = os.path.basename(json_filepath)
+                # 去掉后缀即为数据类型名称
+                datatype_name = os.path.splitext(filename_with_extension)[0]
+
+                # 对每个Json文件的名称创建 drawib_数据类型名称 的集合
+                datatype_collection = CollectionUtils.create_new_collection(collection_name="drawib_" + datatype_name,color_tag=CollectionColor.White, link_to_parent_collection_name=reverse_collection.name)
+
+                try:
+                    # 调用SSMT格式导入功能
+                    SSMTImportHelper.create_mesh_from_json(json_file_path=json_filepath, import_collection=datatype_collection)
+                    imported_count += 1
+                except Exception as e:
+                    error_msg = f"导入失败，已跳过: {json_filepath} | 错误: {e}"
+                    print(error_msg)
+                    self.report({'WARNING'}, error_msg)
+                    continue
+
+        if imported_count == 0:
+            self.report({"ERROR"}, "SSMT格式逆向结果中未成功导入任何Json文件")
+            return {'FINISHED'}
+
+        # 随后把图片路径指定为当前路径
+        reload_textures_from_folder(reverse_output_folder_path)
+
+        return {'FINISHED'}
+
+    def _import_ib_vb_fmt(self, context, reverse_output_folder_path):
         total_folder_name = os.path.basename(reverse_output_folder_path)
 
         reverse_collection = CollectionUtils.create_new_collection(collection_name=total_folder_name,color_tag=CollectionColor.Red)
@@ -482,6 +547,9 @@ class Sword_ImportTexture_VIEW3D_PT_ImageMaterialPanel(Panel):
         
         # 导入 ib vb fmt格式文件
         layout.operator(Import3DMigotoRaw.bl_idname,icon='IMPORT')
+
+        # 手动导入SSMT格式模型（与TheHerta4面板中的按钮相同）
+        layout.operator(SSMT4ImportRaw.bl_idname,icon='IMPORT')
 
         # 自动检测按钮
         row = layout.row()

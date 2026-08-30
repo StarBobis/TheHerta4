@@ -46,6 +46,7 @@ class MeshCreateHelper:
         vertex_compression_params:list | None = None,
         import_collection:bpy.types.Collection | None = None,
         wwmi_shapekey_buffers:dict | None = None,
+        shapekey_position_data:dict | None = None,
         wwmi_vertex_offset:int = 0,
         wwmi_vertex_count:int = -1,
         wwmi_vg_map:dict | None = None,
@@ -209,6 +210,9 @@ class MeshCreateHelper:
         print("导入顶点组完毕")
 
         MeshCreateHelper.import_shapekeys(mesh, obj, shapekeys)
+
+        if shapekey_position_data:
+            MeshCreateHelper.import_shapekey_positions(mesh, obj, shapekey_position_data)
 
         if wwmi_shapekey_buffers is not None:
             MeshCreateHelper.import_shapekeys_wwmi(mesh, obj, wwmi_shapekey_buffers, wwmi_vertex_offset, wwmi_vertex_count)
@@ -440,6 +444,56 @@ class MeshCreateHelper:
             del new_sk
 
         del basis_co, offset_arr, new_co
+
+    @staticmethod
+    def import_shapekey_positions(mesh, obj, shapekey_position_data: dict):
+        '''
+        导入 ShapeKeyPositionBufferList 形态的命名形态键。
+
+        每个条目存储的是与基础 POSITION 同一坐标空间下的绝对顶点坐标
+        （布局与 Position 分类Buffer一致），因此直接作为相对形态键的 co 写入，
+        与 Basis 的写入方式完全相同。
+        '''
+        if not shapekey_position_data:
+            return
+
+        if obj.data.shape_keys is None:
+            basis = obj.shape_key_add(name='Basis')
+            basis.interpolation = 'KEY_LINEAR'
+            obj.data.shape_keys.use_relative = True
+            try:
+                basis.value = 0.0
+            except Exception:
+                pass
+
+        vert_count = len(obj.data.vertices)
+
+        for shapekey_name, position_data in shapekey_position_data.items():
+            co = numpy.asarray(position_data, dtype=numpy.float32)
+            if co.ndim == 1:
+                co = co.reshape(-1, 3)
+            elif co.ndim == 2 and co.shape[1] > 3:
+                # 与 POSITION 元素一致，仅取 xyz 分量。
+                co = co[:, :3]
+
+            if co.ndim != 2 or co.shape[1] != 3 or co.shape[0] != vert_count:
+                print(
+                    "ShapeKeyPosition 导入：形态键 " + str(shapekey_name)
+                    + " 顶点数据形状 " + str(co.shape) + " 与网格顶点数 " + str(vert_count)
+                    + " 不一致，已跳过"
+                )
+                continue
+
+            new_sk = obj.shape_key_add(name=shapekey_name if shapekey_name else "ShapeKey")
+            new_sk.interpolation = 'KEY_LINEAR'
+            new_sk.data.foreach_set('co', numpy.ascontiguousarray(co).ravel())
+            try:
+                new_sk.value = 0.0
+            except Exception:
+                pass
+            del new_sk
+
+        print("ShapeKeyPosition 导入完成，共导入 " + str(len(shapekey_position_data)) + " 个命名形态键")
 
     @staticmethod
     def import_shapekeys_wwmi(mesh, obj, shapekey_buffers: dict, vertex_offset: int, vertex_count: int):

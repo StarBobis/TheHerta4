@@ -16,6 +16,24 @@ class SubmeshIndexBuffer:
 
 
 @dataclass
+class SubmeshShapeKeyPositionBuffer:
+	ShapeKeyName:str
+	FileName:str
+	FilePath:str = field(init=False)
+
+	def bind_dir_path(self, dir_path:str):
+		self.FilePath = os.path.join(dir_path, self.FileName)
+
+
+@dataclass
+class SubmeshDrawCallSegment:
+	IBIndex:int
+	IndexOffset:int
+	IndexCount:int
+	DrawStartIndex:int = 0
+
+
+@dataclass
 class SubmeshCategoryBuffer:
 	FileName:str
 	Type:str
@@ -58,8 +76,11 @@ class SubmeshJson:
 	VGCount:int = field(init=False, default=0)
 	VGMap:dict = field(init=False, default_factory=dict)
 	ShapeKeysInfo:dict = field(init=False, default_factory=dict)
+	DrawCallIndexList:list[str] = field(init=False, default_factory=list)
+	DrawCallSegmentList:list[SubmeshDrawCallSegment] = field(init=False, default_factory=list)
 	IndexBufferList:list[SubmeshIndexBuffer] = field(init=False, default_factory=list)
 	CategoryBufferList:list[SubmeshCategoryBuffer] = field(init=False, default_factory=list)
+	ShapeKeyPositionBufferList:list[SubmeshShapeKeyPositionBuffer] = field(init=False, default_factory=list)
 	TextureMarkUpInfoList:list = field(init=False, default_factory=list)
 	SubMeshRole:str = field(init=False, default="")
 
@@ -93,6 +114,17 @@ class SubmeshJson:
 		self.VGCount = int(self.JsonDict.get("VGCount", 0))
 		self.VGMap = dict(self.JsonDict.get("VGMap", {}))
 		self.ShapeKeysInfo = dict(self.JsonDict.get("ShapeKeysInfo", {}))
+		self.DrawCallIndexList = [str(draw_call_index) for draw_call_index in self.JsonDict.get("DrawCallIndexList", [])]
+
+		self.DrawCallSegmentList = []
+		for draw_call_segment_json in self.JsonDict.get("DrawCallSegmentList", []):
+			draw_call_segment = SubmeshDrawCallSegment(
+				IBIndex=int(draw_call_segment_json.get("IBIndex", 0)),
+				IndexOffset=int(draw_call_segment_json.get("IndexOffset", 0)),
+				IndexCount=int(draw_call_segment_json.get("IndexCount", 0)),
+				DrawStartIndex=int(draw_call_segment_json.get("DrawStartIndex", 0)),
+			)
+			self.DrawCallSegmentList.append(draw_call_segment)
 
 		self.IndexBufferList = []
 		for index_buffer_json in self.JsonDict.get("IndexBufferList", []):
@@ -129,6 +161,15 @@ class SubmeshJson:
 			category_buffer.bind_dir_path(self.DirPath)
 			category_buffer.calc_stride()
 			self.CategoryBufferList.append(category_buffer)
+
+		self.ShapeKeyPositionBufferList = []
+		for shapekey_buffer_json in self.JsonDict.get("ShapeKeyPositionBufferList", []):
+			shapekey_buffer = SubmeshShapeKeyPositionBuffer(
+				ShapeKeyName=shapekey_buffer_json.get("ShapeKeyName", ""),
+				FileName=shapekey_buffer_json.get("FileName", ""),
+			)
+			shapekey_buffer.bind_dir_path(self.DirPath)
+			self.ShapeKeyPositionBufferList.append(shapekey_buffer)
 
 	def get_d3d11_element_json_list(self) -> list[dict]:
 		d3d11_element_json_list = []

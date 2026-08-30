@@ -154,6 +154,17 @@ class GlobalConfig:
         return ""
 
     @staticmethod
+    def reverse_output_format():
+        # Reverse output format is written by the MMT toolchain on reverse success,
+        # symmetric to ReverseOutputFolder. Values: ib_vb_fmt / ssmt_fmt.
+        # When the key is missing, treat the output as the legacy ib_vb_fmt format.
+        settings = GlobalConfig._mmt_family_settings()
+        reverse_output_format = str(settings.get("ReverseOutputFormat", "") or "").strip()
+        if reverse_output_format:
+            return reverse_output_format
+        return "ib_vb_fmt"
+
+    @staticmethod
     def path_mimitools_settings_json():
         return os.path.join(GlobalConfig.path_appdata_local(), "MIMIToolsGlobalConfigs", "MIMIToolsSettings.json")
 

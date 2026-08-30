@@ -15,7 +15,8 @@ class SSMTImportHelper:
 		submesh_json = SubmeshJson(json_file_path)
 
 		elements, vb_data, vb_vertex_count, shapekey_buffers = SSMTImportHelper.parse_category_buffers(submesh_json)
-		ib_data, ib_count, ib_polygon_count = SSMTImportHelper.parse_index_buffer(submesh_json)
+		ib_data_list, ib_entry_array_indices, ib_data, ib_count, ib_polygon_count = SSMTImportHelper.parse_index_buffers(submesh_json)
+		shapekey_position_data = SSMTImportHelper.parse_shapekey_position_buffers(submesh_json)
 
 		mesh_name = os.path.splitext(submesh_json.FileName)[0]
 		logic_name = submesh_json.GamePreset
@@ -23,6 +24,64 @@ class SSMTImportHelper:
 
 		# Merged / UniComponent 模式：通过VGMap将local blend index重映射为global bone ID
 		wwmi_vg_map = submesh_json.VGMap if (submesh_json.VGMap and GlobalProperties.is_merged_mode()) else None
+
+		# 逆向产物可能携带 DrawCallSegmentList（每一条 drawindexed 一个分段）。
+		# 存在有效分段时逐段创建独立网格对象（分段创建模型，与经典 fmt 输出的
+		# 逐切片拆分语义一致）；不存在时按整条 IB 作为单一网格导入。
+		draw_call_segments = SSMTImportHelper.resolve_draw_call_segments(
+			submesh_json=submesh_json,
+			ib_data_list=ib_data_list,
+			ib_entry_array_indices=ib_entry_array_indices,
+			ib_data_full=ib_data,
+			vb_vertex_count=vb_vertex_count,
+		)
+		if len(draw_call_segments) > 0:
+			if shapekey_buffers:
+				print("DrawCallSegment 导入：检测到 WWMI 风格形态键Buffer，分段导入暂不支持，已忽略")
+
+			imported_obj_list = []
+			for segment_index, (segment_ib_data, vertex_min, vertex_max, segment_info) in enumerate(draw_call_segments):
+				if len(draw_call_segments) == 1:
+					segment_mesh_name = mesh_name
+				else:
+					segment_mesh_name = mesh_name + "-" + str(segment_index + 1).zfill(2)
+
+				# 每个分段独立压缩顶点区间 [vertex_min, vertex_max]，
+				# VB 各元素数据与形态键数据按相同区间切片，IB 重基准到 0。
+				segment_vb_data = {}
+				for element_name, element_data in vb_data.items():
+					segment_vb_data[element_name] = element_data[vertex_min:vertex_max + 1]
+
+				segment_shapekey_position_data = {}
+				for shapekey_name, shapekey_data in shapekey_position_data.items():
+					segment_shapekey_position_data[shapekey_name] = shapekey_data[vertex_min:vertex_max + 1]
+
+				segment_obj = MeshCreateHelper.create_mesh_object(
+					mesh_name=segment_mesh_name,
+					source_path=submesh_json.JsonFilePath,
+					logic_name=logic_name,
+					gametypename=gametypename,
+					elements=elements,
+					vb_data=segment_vb_data,
+					ib_data=segment_ib_data - vertex_min,
+					vb_vertex_count=vertex_max - vertex_min + 1,
+					ib_count=len(segment_ib_data),
+					ib_polygon_count=int(len(segment_ib_data) / 3),
+					import_collection=import_collection,
+					shapekey_position_data=segment_shapekey_position_data if segment_shapekey_position_data else None,
+					wwmi_vg_map=wwmi_vg_map,
+					wwmi_vg_offset=submesh_json.VGOffset,
+				)
+				segment_obj["3DMigoto:DrawCallIBIndex"] = segment_info["ib_index"]
+				segment_obj["3DMigoto:DrawCallIndexOffset"] = segment_info["index_offset"]
+				segment_obj["3DMigoto:DrawCallIndexCount"] = segment_info["index_count"]
+				imported_obj_list.append(segment_obj)
+
+			if len(imported_obj_list) > 0:
+				print("DrawCallSegment 导入完成，共创建 " + str(len(imported_obj_list)) + " 个分段网格")
+				return imported_obj_list[0]
+
+			print("DrawCallSegmentList 全部分段无效，回退为整体导入")
 
 		return MeshCreateHelper.create_mesh_object(
 			mesh_name=mesh_name,
@@ -40,6 +99,7 @@ class SSMTImportHelper:
 			vertex_compression_params=submesh_json.VertexCompressionParams,
 			import_collection=import_collection,
 			wwmi_shapekey_buffers=shapekey_buffers if shapekey_buffers else None,
+			shapekey_position_data=shapekey_position_data if shapekey_position_data else None,
 			wwmi_vertex_offset=submesh_json.VertexOffset,
 			wwmi_vertex_count=submesh_json.VertexCount,
 			wwmi_vg_map=wwmi_vg_map,
@@ -47,26 +107,131 @@ class SSMTImportHelper:
 		)
 
 	@staticmethod
-	def parse_index_buffer(submesh_json:SubmeshJson):
+	def resolve_draw_call_segments(submesh_json:SubmeshJson, ib_data_list:list, ib_entry_array_indices:list, ib_data_full, vb_vertex_count:int):
+		'''
+		解析 DrawCall 分段信息，返回 [(segment_ib_data, vertex_min, vertex_max, segment_info)]。
+
+		优先使用 DrawCallSegmentList（逆向工具输出的完整有序分段，每一条
+		drawindexed 一个分段，不做去重）。
+		缺失时回退使用 DrawCallIndexList 顺序切分——但该字段旧版按 drawNumber
+		去重，仅当其计数总和与 IB 实际索引数完全一致时才可信，否则放弃分段。
+		'''
+		raw_segments = []
+
+		if len(submesh_json.DrawCallSegmentList) > 0:
+			for draw_call_segment in submesh_json.DrawCallSegmentList:
+				if draw_call_segment.IBIndex < 0 or draw_call_segment.IBIndex >= len(ib_entry_array_indices):
+					print("DrawCallSegment 导入：分段指向不存在的 IBIndex " + str(draw_call_segment.IBIndex) + "，已跳过")
+					continue
+
+				source_ib_data = ib_data_list[ib_entry_array_indices[draw_call_segment.IBIndex]]
+				if draw_call_segment.IndexCount <= 0:
+					continue
+
+				segment_end = draw_call_segment.IndexOffset + draw_call_segment.IndexCount
+				if draw_call_segment.IndexOffset < 0 or segment_end > len(source_ib_data):
+					print(
+						"DrawCallSegment 导入：分段范围越界 (IBIndex=" + str(draw_call_segment.IBIndex)
+						+ ", IndexOffset=" + str(draw_call_segment.IndexOffset)
+						+ ", IndexCount=" + str(draw_call_segment.IndexCount)
+						+ ", IB索引数=" + str(len(source_ib_data)) + ")，已跳过"
+					)
+					continue
+
+				raw_segments.append((
+					source_ib_data[draw_call_segment.IndexOffset:segment_end],
+					{
+						"ib_index": draw_call_segment.IBIndex,
+						"index_offset": draw_call_segment.IndexOffset,
+						"index_count": draw_call_segment.IndexCount,
+					},
+				))
+		elif len(submesh_json.DrawCallIndexList) > 0:
+			index_count_list = []
+			for draw_call_index in submesh_json.DrawCallIndexList:
+				try:
+					index_count_list.append(int(draw_call_index))
+				except (TypeError, ValueError):
+					index_count_list = []
+					break
+
+			if len(index_count_list) > 0:
+				if sum(index_count_list) == len(ib_data_full):
+					index_offset = 0
+					for index_count in index_count_list:
+						raw_segments.append((
+							ib_data_full[index_offset:index_offset + index_count],
+							{"ib_index": -1, "index_offset": index_offset, "index_count": index_count},
+						))
+						index_offset += index_count
+				else:
+					print(
+						"DrawCallIndexList 合计索引数 " + str(sum(index_count_list))
+						+ " 与 IB 实际索引数 " + str(len(ib_data_full))
+						+ " 不一致（旧版逆向工具对重复 drawNumber 做了去重），无法可靠分段，改为整体导入。"
+						+ "使用更新后的逆向工具重新逆向即可获得 DrawCallSegmentList 精确分段。"
+					)
+
+		draw_call_segments = []
+		for segment_ib_data, segment_info in raw_segments:
+			if len(segment_ib_data) == 0:
+				continue
+
+			vertex_min = int(segment_ib_data.min())
+			vertex_max = int(segment_ib_data.max())
+			if vertex_min < 0 or vertex_max >= vb_vertex_count:
+				print(
+					"DrawCallSegment 导入：分段顶点范围 [" + str(vertex_min) + ", " + str(vertex_max)
+					+ "] 超出 VB 顶点数 " + str(vb_vertex_count) + "，已跳过"
+				)
+				continue
+
+			draw_call_segments.append((segment_ib_data, vertex_min, vertex_max, segment_info))
+
+		return draw_call_segments
+
+	@staticmethod
+	def parse_index_buffers(submesh_json:SubmeshJson):
+		'''
+		解析 IndexBufferList 中的全部 IB 文件。
+
+		返回 (ib_data_list, ib_entry_array_indices, ib_data_full, ib_count, ib_polygon_count)：
+		- ib_data_list：按 FileName 去重后的 IB 数组列表（保持首次出现顺序），
+		  供 DrawCallSegmentList 按 IBIndex 索引；
+		- ib_entry_array_indices：IndexBufferList 每个条目映射到 ib_data_list 的下标
+		  （旧版逆向产物中多个条目可能指向同一文件）；
+		- ib_data_full：全部唯一 IB 顺序拼接后的完整索引数据（整体导入用）。
+		'''
 		if len(submesh_json.IndexBufferList) == 0:
 			raise Fatal("SubmeshJson missing IndexBufferList.")
 
-		index_buffer = submesh_json.IndexBufferList[0]
-		if not os.path.exists(index_buffer.FilePath):
-			raise Fatal("Unable to find matching .ib file for: " + index_buffer.FileName)
+		ib_data_list = []
+		filename_array_index_dict = {}
+		ib_entry_array_indices = []
 
-		ib_file_size = os.path.getsize(index_buffer.FilePath)
-		if ib_file_size == 0:
-			raise Fatal("Current Import " + index_buffer.FileName + " file is empty, skip import.")
+		for index_buffer in submesh_json.IndexBufferList:
+			if index_buffer.FileName in filename_array_index_dict:
+				ib_entry_array_indices.append(filename_array_index_dict[index_buffer.FileName])
+				continue
 
-		index_np_type = FormatUtils.get_nptype_from_format(index_buffer.DXGI_FORMAT)
-		index_stride = numpy.dtype(index_np_type).itemsize
-		if ib_file_size % index_stride != 0:
-			raise Fatal("Index buffer file size is not aligned with DXGI format stride: " + index_buffer.FileName)
+			if not os.path.exists(index_buffer.FilePath):
+				raise Fatal("Unable to find matching .ib file for: " + index_buffer.FileName)
 
-		ib_count = int(ib_file_size / index_stride)
-		ib_polygon_count = int(ib_count / 3)
-		ib_data = numpy.fromfile(index_buffer.FilePath, dtype=index_np_type, count=ib_count)
+			ib_file_size = os.path.getsize(index_buffer.FilePath)
+			if ib_file_size == 0:
+				raise Fatal("Current Import " + index_buffer.FileName + " file is empty, skip import.")
+
+			index_np_type = FormatUtils.get_nptype_from_format(index_buffer.DXGI_FORMAT)
+			index_stride = numpy.dtype(index_np_type).itemsize
+			if ib_file_size % index_stride != 0:
+				raise Fatal("Index buffer file size is not aligned with DXGI format stride: " + index_buffer.FileName)
+
+			ib_count = int(ib_file_size / index_stride)
+			ib_data = numpy.fromfile(index_buffer.FilePath, dtype=index_np_type, count=ib_count)
+
+			filename_array_index_dict[index_buffer.FileName] = len(ib_data_list)
+			ib_data_list.append(ib_data)
+			ib_entry_array_indices.append(filename_array_index_dict[index_buffer.FileName])
 
 		# IB indices are global (relative to full shared VB).
 		# When VertexCount > 0, VB is sliced to [VertexOffset : VertexOffset+VertexCount],
@@ -76,9 +241,17 @@ class SSMTImportHelper:
 		vertex_offset = submesh_json.VertexOffset
 		vertex_count = submesh_json.VertexCount
 		if vertex_offset > 0 and vertex_count > 0:
-			ib_data = ib_data.astype(numpy.int64) - vertex_offset
+			ib_data_list = [ib_data.astype(numpy.int64) - vertex_offset for ib_data in ib_data_list]
 
-		return ib_data, ib_count, ib_polygon_count
+		if len(ib_data_list) > 1:
+			ib_data_full = numpy.concatenate(ib_data_list)
+		else:
+			ib_data_full = ib_data_list[0]
+
+		ib_count = len(ib_data_full)
+		ib_polygon_count = int(ib_count / 3)
+
+		return ib_data_list, ib_entry_array_indices, ib_data_full, ib_count, ib_polygon_count
 
 	@staticmethod
 	def parse_category_buffers(submesh_json:SubmeshJson):
@@ -149,6 +322,74 @@ class SSMTImportHelper:
 			raise Fatal("No valid normal category buffer was parsed from SubmeshJson.")
 
 		return elements, vb_data, vb_vertex_count, shapekey_buffers
+
+	@staticmethod
+	def parse_shapekey_position_buffers(submesh_json:SubmeshJson):
+		'''
+		解析 ShapeKeyPositionBufferList 中描述的形态键Buffer。
+
+		形态键Buffer的二进制布局与 Position 分类的 CategoryBuffer 完全一致，
+		因此直接复用 Position 分类Buffer的 D3D11ElementList 来解析，
+		并从中提取 POSITION 元素的绝对坐标数据（与基础 POSITION 同一坐标空间）。
+		'''
+		shapekey_position_data = {}
+
+		if len(submesh_json.ShapeKeyPositionBufferList) == 0:
+			return shapekey_position_data
+
+		# 找到第一个包含 POSITION 语义元素的 CategoryBuffer 作为布局模板。
+		position_category_buffer = None
+		position_element = None
+		for category_buffer in submesh_json.CategoryBufferList:
+			for d3d11_element in category_buffer.D3D11ElementList:
+				if d3d11_element.SemanticName == "POSITION":
+					position_category_buffer = category_buffer
+					position_element = d3d11_element
+					break
+			if position_category_buffer is not None:
+				break
+
+		if position_category_buffer is None or position_element is None:
+			print("ShapeKeyPosition 导入：未找到 Position 分类Buffer，跳过形态键导入。")
+			return shapekey_position_data
+
+		if position_category_buffer.Stride <= 0:
+			return shapekey_position_data
+
+		for shapekey_buffer in submesh_json.ShapeKeyPositionBufferList:
+			if not shapekey_buffer.FileName:
+				continue
+
+			if not os.path.exists(shapekey_buffer.FilePath) or os.path.getsize(shapekey_buffer.FilePath) == 0:
+				print("ShapeKeyPosition 导入：形态键Buffer缺失或为空，已跳过: " + shapekey_buffer.FileName)
+				continue
+
+			if os.path.getsize(shapekey_buffer.FilePath) % position_category_buffer.Stride != 0:
+				print("ShapeKeyPosition 导入：形态键Buffer大小与 Position 步长不对齐，已跳过: " + shapekey_buffer.FileName)
+				continue
+
+			shapekey_category_buffer = SubmeshCategoryBuffer(
+				FileName=shapekey_buffer.FileName,
+				Type="Normal",
+				D3D11ElementList=position_category_buffer.D3D11ElementList,
+			)
+			shapekey_category_buffer.bind_dir_path(submesh_json.DirPath)
+			shapekey_category_buffer.calc_stride()
+
+			_, shapekey_vb_data, _ = SSMTImportHelper.parse_normal_category_buffer(
+				shapekey_category_buffer,
+				vertex_slice_offset=submesh_json.VertexOffset,
+				vertex_slice_count=submesh_json.VertexCount,
+			)
+
+			position_data = shapekey_vb_data.get(position_element.ElementName)
+			if position_data is None:
+				continue
+
+			position_data = FormatUtils.apply_format_conversion(position_data, position_element.Format)
+			shapekey_position_data[shapekey_buffer.ShapeKeyName] = position_data
+
+		return shapekey_position_data
 
 	@staticmethod
 	def parse_normal_category_buffer(category_buffer:SubmeshCategoryBuffer, vertex_slice_offset:int=0, vertex_slice_count:int=-1):
