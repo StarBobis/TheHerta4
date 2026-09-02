@@ -37,7 +37,11 @@ class SSMTImportHelper:
 		)
 		if len(draw_call_segments) > 0:
 			if shapekey_buffers:
-				print("DrawCallSegment 导入：检测到 WWMI 风格形态键Buffer，分段导入暂不支持，已忽略")
+				# WWMI 风格形态键（ShapeKeyOffset/VertexId/VertexOffset 三件套）：
+				# 缓冲是整份对象空间的，导入时按每个分段的顶点窗口
+				# [vertex_min, vertex_max] 换算（local = global - vertex_min），
+				# 与整体导入的 vertex_offset/vertex_count 语义一致。
+				print("DrawCallSegment 导入：检测到 WWMI 风格形态键Buffer，按分段顶点窗口逐段导入")
 
 			imported_obj_list = []
 			for segment_index, (segment_ib_data, vertex_min, vertex_max, segment_info) in enumerate(draw_call_segments):
@@ -69,6 +73,11 @@ class SSMTImportHelper:
 					ib_polygon_count=int(len(segment_ib_data) / 3),
 					import_collection=import_collection,
 					shapekey_position_data=segment_shapekey_position_data if segment_shapekey_position_data else None,
+					# WWMI 形态键三件套：整份缓冲 + 分段顶点窗口
+					# （global vertex id → 本段局部 id = global - vertex_min）。
+					wwmi_shapekey_buffers=shapekey_buffers if shapekey_buffers else None,
+					wwmi_vertex_offset=vertex_min,
+					wwmi_vertex_count=vertex_max - vertex_min + 1,
 					wwmi_vg_map=wwmi_vg_map,
 					wwmi_vg_offset=submesh_json.VGOffset,
 				)
