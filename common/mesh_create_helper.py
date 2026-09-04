@@ -181,6 +181,12 @@ class MeshCreateHelper:
                 pass
             elif element.SemanticName == "BITANGENT":
                 pass
+            elif element.SemanticName == "RAWDATA":
+                # EFMI 逆向产物中的保留区字节（input layout 未声明的 stride
+                # 间隙，EFMI-Tools fill_missing_semantics 标记；逆向端正式
+                # 命名为 RAWDATA）：读取以维持 stride 对齐与顶点数一致，
+                # 不建立任何 Blender 属性——它没有可映射的语义。
+                pass
             else:
                 raise Fatal("Unknown ElementName: " + element.ElementName)
             
